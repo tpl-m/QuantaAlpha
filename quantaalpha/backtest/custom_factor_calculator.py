@@ -25,6 +25,7 @@ import pandas as pd
 # Add project root (from quantaalpha/backtest/ up two levels)
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root.parent))
 
 warnings.filterwarnings('ignore', category=FutureWarning, module='pandas')
 warnings.filterwarnings('ignore', category=UserWarning, module='quantaalpha')
@@ -196,6 +197,7 @@ class CustomFactorCalculator:
         Compute a single factor.
         Returns: pd.Series with MultiIndex (datetime, instrument).
         """
+        parser_error: Optional[Exception] = None
         try:
             import io
             import sys as _sys
@@ -257,7 +259,32 @@ class CustomFactorCalculator:
                 return pd.Series(result, index=df.index, name=factor_name).astype(np.float64)
                 
         except Exception as e:
-            logger.warning(f"Factor computation failed [{factor_name}]: {str(e)[:200]}")
+            parser_error = e
+
+        try:
+            from qlib_factor_evaluator import evaluate_factor_expression
+
+            fallback_df = evaluate_factor_expression(
+                expression=factor_expression,
+                factor_name=factor_name,
+                data_dir=(
+                    os.environ.get("QLIB_DATA_DIR")
+                    or os.environ.get("QLIB_PROVIDER_URI")
+                    or (self._config or {}).get("data", {}).get("provider_uri")
+                ),
+                start_time=(self._config or {}).get("data", {}).get("start_time", "2008-01-01"),
+                end_time=(self._config or {}).get("data", {}).get("end_time"),
+            )
+            fallback_series = fallback_df.iloc[:, 0]
+            fallback_series.name = factor_name
+            return fallback_series.astype(np.float64)
+        except Exception as qlib_error:
+            logger.warning(
+                "Factor computation failed [%s]. parser_error=%s qlib_error=%s",
+                factor_name,
+                str(parser_error)[:200] if parser_error is not None else "n/a",
+                str(qlib_error)[:200],
+            )
             return None
     
     def calculate_factors_from_json(self, json_path: str, 
