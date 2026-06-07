@@ -136,6 +136,11 @@ try:
 except ImportError:
     logger.warning("llama is not installed.")
 
+try:
+    import anthropic
+except ImportError:
+    logger.warning("anthropic is not installed.")
+
 
 class ConvManager:
     """
@@ -394,6 +399,33 @@ class APIBackend:
             self.chat_model_map = json.loads(LLM_SETTINGS.chat_model_map)
             self.chat_model = LLM_SETTINGS.chat_model if chat_model is None else chat_model
             self.encoder = None
+        elif LLM_SETTINGS.use_claude:
+            try:
+                _anthropic_module = anthropic  # noqa: F821 — imported at module level
+            except NameError:
+                raise ImportError(
+                    "USE_CLAUDE=True requires the 'anthropic' package. "
+                    "Install it with: pip install 'anthropic>=0.40.0'"
+                ) from None
+            self.claude_api_key = LLM_SETTINGS.claude_api_key or os.environ.get("CLAUDE_API_KEY", "") or os.environ.get("ANTHROPIC_AUTH_TOKEN", "")
+            self.claude_model = LLM_SETTINGS.claude_model
+            self.chat_model = self.claude_model
+            self.reasoning_model = self.claude_model
+            self.chat_model_map = json.loads(LLM_SETTINGS.chat_model_map)
+            self.chat_stream = LLM_SETTINGS.chat_stream
+            self.chat_seed = None           # Claude ignores seed; set for attr consistency
+            self.use_azure = False          # embedding path checks self.use_azure
+            claude_base_url = os.environ.get("ANTHROPIC_BASE_URL")
+            if claude_base_url:
+                self.chat_client = anthropic.Anthropic(api_key=self.claude_api_key, base_url=claude_base_url)
+            else:
+                self.chat_client = anthropic.Anthropic(api_key=self.claude_api_key)
+            logger.warning(
+                "Claude backend enabled. Anthropic has no embeddings API — "
+                "any call to create_embedding() will raise NotImplementedError. "
+                "If your pipeline uses knowledge management or PDF loading, "
+                "set USE_CLAUDE=False and configure an OpenAI-compatible embedding provider."
+            )
         else:
             self.use_azure = LLM_SETTINGS.use_azure
             self.chat_use_azure_token_provider = LLM_SETTINGS.chat_use_azure_token_provider
@@ -505,6 +537,7 @@ class APIBackend:
         # transfer the config to the class if the config is not supposed to change during the runtime
         self.use_llama2 = LLM_SETTINGS.use_llama2
         self.use_gcr_endpoint = LLM_SETTINGS.use_gcr_endpoint
+        self.use_claude = LLM_SETTINGS.use_claude
         self.retry_wait_seconds = LLM_SETTINGS.retry_wait_seconds
 
     def _get_encoder(self):
@@ -678,6 +711,12 @@ class APIBackend:
     def _create_embedding_inner_function(
         self, input_content_list: list[str], **kwargs: Any
     ) -> list[Any]:  # noqa: ARG002
+        # Claude/Anthropic has no embeddings API
+        if self.use_claude:
+            raise NotImplementedError(
+                "Embeddings are not supported with the Claude backend. "
+                "Disable USE_CLAUDE or switch to an OpenAI-compatible backend."
+            )
         content_to_embedding_dict = {}
         filtered_input_content_list = []
         if self.use_embedding_cache:
@@ -838,6 +877,69 @@ class APIBackend:
             resp = json.loads(response.read().decode())["output"]
             if LLM_SETTINGS.log_llm_chat_content:
                 logger.info(f"{LogColors.CYAN}Response:{resp}{LogColors.END}", tag="llm_messages")
+        elif self.use_claude:
+            # Anthropic requires system prompt as top-level param, not in messages list
+            system_prompt = None
+            user_messages = []
+            for msg in messages:
+                if msg["role"] == "system":
+                    system_prompt = msg["content"]
+                else:
+                    user_messages.append(msg)
+
+            # Guard against system-only input (Anthropic rejects empty messages[])
+            if not user_messages:
+                raise ValueError("Claude backend requires at least one non-system message")
+
+            # No native json_mode in Claude; inject instruction into last user message
+            if json_mode and user_messages:
+                user_messages[-1]["content"] = (
+                    user_messages[-1]["content"] + "\nPlease respond in json format."
+                )
+            anthropic_kwargs = dict(
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                messages=user_messages,
+            )
+            if system_prompt:
+                anthropic_kwargs["system"] = system_prompt
+            if self.chat_stream:
+                resp = ""
+                with self.chat_client.messages.stream(**anthropic_kwargs) as stream:
+                    for text in stream.text_stream:
+                        resp += text
+                    # Get actual stop_reason from final message (not hardcode "stop")
+                    final = stream.get_final_message()
+                    raw_stop = final.stop_reason
+                finish_reason = (
+                    "stop" if raw_stop == "end_turn"
+                    else ("length" if raw_stop == "max_tokens" else raw_stop)
+                )
+            else:
+                response = self.chat_client.messages.create(**anthropic_kwargs)
+                # Safe extraction: filter text blocks, handle empty/tool_use responses
+                resp = "".join(block.text for block in response.content if block.type == "text")
+                raw_stop = response.stop_reason
+                finish_reason = (
+                    "stop" if raw_stop == "end_turn"
+                    else ("length" if raw_stop == "max_tokens" else raw_stop)
+                )
+            # Claude often wraps JSON in markdown code fences even when asked not to.
+            # Strip them so callers can json.loads() the response directly.
+            if json_mode and resp:
+                stripped = resp.strip()
+                if stripped.startswith("```"):
+                    lines = stripped.split("\n")
+                    # Remove opening fence (```json or ```)
+                    lines = lines[1:]
+                    # Remove closing fence if present
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    resp = "\n".join(lines).strip()
+            if LLM_SETTINGS.log_llm_chat_content:
+                display_resp = resp[:200] + f"... [{len(resp)} chars]" if len(resp) > 200 else resp
+                logger.info(f"{LogColors.CYAN}Response:{display_resp}{LogColors.END}", tag="llm_messages")
         else:
             kwargs = dict(
                 model=model,
