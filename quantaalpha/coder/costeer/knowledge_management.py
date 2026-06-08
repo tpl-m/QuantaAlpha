@@ -177,25 +177,29 @@ class CoSTEERRAGStrategyV1(RAGStrategy):
                 knowledge_base_success_task_list = list(
                     self.knowledgebase.success_task_info_set,
                 )
-                similarity = calculate_embedding_distance_between_str_list(
-                    [target_task_information],
-                    knowledge_base_success_task_list,
-                )[0]
-                similar_indexes = sorted(
-                    range(len(similarity)),
-                    key=lambda i: similarity[i],
-                    reverse=True,
-                )[:v1_query_similar_success_limit]
-                similar_successful_knowledge = [
-                    self.knowledgebase.implementation_trace.setdefault(
-                        knowledge_base_success_task_list[index],
-                        [],
-                    )[-1]
-                    for index in similar_indexes
-                ]
-                queried_knowledge.task_to_similar_task_successful_knowledge[target_task_information] = (
-                    similar_successful_knowledge
-                )
+                try:
+                    similarity = calculate_embedding_distance_between_str_list(
+                        [target_task_information],
+                        knowledge_base_success_task_list,
+                    )[0]
+                    similar_indexes = sorted(
+                        range(len(similarity)),
+                        key=lambda i: similarity[i],
+                        reverse=True,
+                    )[:v1_query_similar_success_limit]
+                    similar_successful_knowledge = [
+                        self.knowledgebase.implementation_trace.setdefault(
+                            knowledge_base_success_task_list[index],
+                            [],
+                        )[-1]
+                        for index in similar_indexes
+                    ]
+                    queried_knowledge.task_to_similar_task_successful_knowledge[target_task_information] = (
+                        similar_successful_knowledge
+                    )
+                except (NotImplementedError, RuntimeError):
+                    # Embeddings not available (e.g. Claude backend). Skip embedding similarity.
+                    queried_knowledge.task_to_similar_task_successful_knowledge[target_task_information] = []
         return queried_knowledge
 
 
@@ -527,27 +531,32 @@ class CoSTEERRAGStrategyV2(RAGStrategy):
                 # finally add embedding related knowledge
                 knowledge_base_success_task_list = list(self.knowledgebase.success_task_to_knowledge_dict)
 
-                similarity = calculate_embedding_distance_between_str_list(
-                    [target_task_information],
-                    knowledge_base_success_task_list,
-                )[0]
-                similar_indexes = sorted(
-                    range(len(similarity)),
-                    key=lambda i: similarity[i],
-                    reverse=True,
-                )
-                embedding_similar_successful_knowledge = [
-                    self.knowledgebase.success_task_to_knowledge_dict[knowledge_base_success_task_list[index]]
-                    for index in similar_indexes
-                ]
-                for knowledge in embedding_similar_successful_knowledge:
-                    if (
-                        knowledge
-                        not in queried_knowledge_v2.task_to_similar_task_successful_knowledge[target_task_information]
-                    ):
-                        queried_knowledge_v2.task_to_similar_task_successful_knowledge[target_task_information].append(
+                try:
+                    similarity = calculate_embedding_distance_between_str_list(
+                        [target_task_information],
+                        knowledge_base_success_task_list,
+                    )[0]
+                    similar_indexes = sorted(
+                        range(len(similarity)),
+                        key=lambda i: similarity[i],
+                        reverse=True,
+                    )
+                    embedding_similar_successful_knowledge = [
+                        self.knowledgebase.success_task_to_knowledge_dict[knowledge_base_success_task_list[index]]
+                        for index in similar_indexes
+                    ]
+                    for knowledge in embedding_similar_successful_knowledge:
+                        if (
                             knowledge
-                        )
+                            not in queried_knowledge_v2.task_to_similar_task_successful_knowledge[target_task_information]
+                        ):
+                            queried_knowledge_v2.task_to_similar_task_successful_knowledge[target_task_information].append(
+                                knowledge
+                            )
+                except (NotImplementedError, RuntimeError):
+                    # Embeddings not available (e.g. Claude backend has no embedding API).
+                    # Skip embedding-based similarity; knowledge graph traversal above still applies.
+                    pass
 
                 if knowledge_sampler > 0:
                     queried_knowledge_v2.task_to_similar_task_successful_knowledge[target_task_information] = [

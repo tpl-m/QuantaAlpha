@@ -62,6 +62,11 @@ class LLMSettings(ExtendedBaseSettings):
     use_llama2: bool = False
     use_gcr_endpoint: bool = False
 
+    # Anthropic/Claude (optional)
+    use_claude: bool = False
+    claude_api_key: str = ""
+    claude_model: str = "claude-sonnet-4-5"
+
     chat_model_map: str = "{}"
 
 

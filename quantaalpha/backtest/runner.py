@@ -638,7 +638,14 @@ class BacktestRunner:
                                 save_df = daily_df[['excess_return']].copy()
                                 save_df.columns = ['daily_excess_return']
                                 save_df['cumulative_excess_return'] = save_df['daily_excess_return'].cumsum()
-                                
+
+                                # 同时保存基准收益和组合收益
+                                save_df['portfolio_return'] = portfolio_return
+                                save_df['benchmark_return'] = bench_return
+                                save_df['cost'] = cost
+                                save_df['cumulative_portfolio'] = portfolio_return.cumsum()
+                                save_df['cumulative_benchmark'] = bench_return.cumsum()
+
                                 save_df.index.name = 'date'
                                 save_df.to_csv(csv_path)
                                 logger.debug(f"  Daily excess return saved: {csv_path}")
@@ -646,13 +653,28 @@ class BacktestRunner:
                                 logger.warning(f"Failed to save daily CSV: {csv_err}")
 
                             analysis = risk_analysis(excess_return_with_cost)
-                            
+
                             if isinstance(analysis, pd.DataFrame):
                                 analysis = analysis['risk'] if 'risk' in analysis.columns else analysis.iloc[:, 0]
-                            
+
                             ann_ret = float(analysis.get('annualized_return', 0))
                             info_ratio = float(analysis.get('information_ratio', 0))
                             max_dd = float(analysis.get('max_drawdown', 0))
+
+                            # 计算基准和组合的年化收益率
+                            bench_analysis = risk_analysis(bench_return)
+                            if isinstance(bench_analysis, pd.DataFrame):
+                                bench_analysis = bench_analysis['risk'] if 'risk' in bench_analysis.columns else bench_analysis.iloc[:, 0]
+                            bench_ann_ret = float(bench_analysis.get('annualized_return', 0))
+
+                            portfolio_analysis = risk_analysis(portfolio_return)
+                            if isinstance(portfolio_analysis, pd.DataFrame):
+                                portfolio_analysis = portfolio_analysis['risk'] if 'risk' in portfolio_analysis.columns else portfolio_analysis.iloc[:, 0]
+                            portfolio_ann_ret = float(portfolio_analysis.get('annualized_return', 0))
+
+                            # 添加到metrics
+                            metrics['benchmark_annualized_return'] = bench_ann_ret
+                            metrics['portfolio_annualized_return'] = portfolio_ann_ret
                             
                             if not np.isnan(ann_ret) and not np.isinf(ann_ret):
                                 metrics['annualized_return'] = ann_ret
@@ -684,9 +706,13 @@ class BacktestRunner:
         print("[IC Metrics]")
         print(f"  IC: {_f(metrics.get('IC'))}  ICIR: {_f(metrics.get('ICIR'))}")
         print(f"  Rank IC: {_f(metrics.get('Rank IC'))}  Rank ICIR: {_f(metrics.get('Rank ICIR'))}")
+        print("[Return Breakdown]")
+        print(f"  Benchmark (沪深300) Ann. Return: {_f(metrics.get('benchmark_annualized_return'), '.4f')} ({_f(metrics.get('benchmark_annualized_return')*100, '.2f')}%)")
+        print(f"  Portfolio Ann. Return: {_f(metrics.get('portfolio_annualized_return'), '.4f')} ({_f(metrics.get('portfolio_annualized_return')*100, '.2f')}%)")
+        print(f"  Excess Ann. Return: {_f(metrics.get('annualized_return'), '.4f')} ({_f(metrics.get('annualized_return')*100, '.2f')}%)")
         print("[Strategy Metrics]")
-        print(f"  Ann. Return: {_f(metrics.get('annualized_return'), '.4f')}  Max DD: {_f(metrics.get('max_drawdown'), '.4f')}")
-        print(f"  Info Ratio: {_f(metrics.get('information_ratio'), '.4f')}  Calmar: {_f(metrics.get('calmar_ratio'), '.4f')}")
+        print(f"  Max DD: {_f(metrics.get('max_drawdown'), '.4f')}  Info Ratio: {_f(metrics.get('information_ratio'), '.4f')}")
+        print(f"  Calmar: {_f(metrics.get('calmar_ratio'), '.4f')}")
         print(f"Total time: {total_time:.1f}s")
         print(f"{'='*50}")
     

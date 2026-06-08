@@ -1,0 +1,17 @@
+QuantaAlpha三因子LightGBM模型
+==================================================
+
+训练时间: 2016-01-04 ~ 2025-12-26
+训练样本: 770637
+验证样本: 294059
+测试样本: 293442
+
+性能指标:
+  训练集IC: 0.0195
+  验证集IC: 0.0058
+  测试集IC: 0.0124
+
+因子定义:
+  因子1: (0 - (Log($close) - Mean(Log($close), 20)) / (Std(Log($close), 20) + 1e-8)) * Std($close/Ref($close,1)-1, 5) / (Std($close/Ref($close,1)-1, 20) + 1e-8)
+  因子2: (0 - ($close - Mean($close, 20)) / (Std($close, 20) + 1e-8)) * Sign(0 - Corr($close/Ref($close,1)-1, Ref($close/Ref($close,1)-1, 1), 20))
+  因子3: (0 - ($close - Mean($close, 20)) / (Std($close, 20) + 1e-8)) * (1 - Corr($close/Ref($close,1)-1, Ref($close/Ref($close,1)-1, 1), 10))

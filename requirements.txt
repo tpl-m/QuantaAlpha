@@ -14,6 +14,7 @@ loguru                     # Logging
 fire                       # CLI framework
 fuzzywuzzy                 # Fuzzy string matching
 openai                     # LLM API (DashScope-compatible)
+anthropic>=0.40.0          # Anthropic Claude API (optional; required when USE_CLAUDE=True)
 python-dotenv              # .env loading
 
 # -----------------------------------------------------------------------------
