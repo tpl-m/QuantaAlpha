@@ -211,7 +211,42 @@ class FactorFBWorkspace(FBWorkspace):
             if workspace_output_file_path.exists() and execution_success:
                 try:
                     executed_factor_value_dataframe = pd.read_hdf(workspace_output_file_path)
-                    execution_feedback += self.FB_OUTPUT_FILE_FOUND
+                    # Fix: reject nearly-empty results so LLM gets useful feedback
+                    if executed_factor_value_dataframe is None or executed_factor_value_dataframe.empty:
+                        # Use NOTE: prefix so this survives the evaluator's warning-line filter
+                        # (evaluators.py strips lines containing 'warning' before passing feedback to the LLM)
+                        # Note: removed the '$-prefix' claim (Round 17) — the executor auto-rewrites bare names.
+                        execution_feedback += "\nNOTE: Factor produced an empty DataFrame. Likely cause: unsupported operator, incorrect function arguments, or data alignment error causing all NaN values."
+                        executed_factor_value_dataframe = None
+                        if self.raise_exception:
+                            raise NoOutputError(execution_feedback)
+                        else:
+                            execution_error = NoOutputError(execution_feedback)
+                    else:
+                        # Normalize to DataFrame: pd.read_hdf() can return a Series for 1-stock runs.
+                        # Series.notna().mean() returns a float, so the second .mean() would crash.
+                        result_frame = executed_factor_value_dataframe
+                        if isinstance(result_frame, pd.Series):
+                            result_frame = result_frame.to_frame()
+                        coverage = result_frame.notna().mean().mean()
+                        # Treat zero coverage as a hard failure (Round 18 Codex finding).
+                        # All-NaN outputs are not useful and should not pass as successful factors.
+                        if coverage == 0.0:
+                            execution_feedback += "\nNOTE: Factor produced all-NaN output (zero non-NaN values). Likely cause: unsupported operator, incorrect function arguments, or data alignment error."
+                            executed_factor_value_dataframe = None
+                            if self.raise_exception:
+                                raise NoOutputError(execution_feedback)
+                            else:
+                                execution_error = NoOutputError(execution_feedback)
+                        elif coverage < 0.10:
+                            # Warn but do not fail — sparse factors are valid by construction
+                            # (e.g. event-driven or heavily-filtered conditional expressions).
+                            # Only a completely empty DataFrame (handled above) is a hard error.
+                            execution_feedback += f"\nNOTE: Factor DataFrame has low coverage ({coverage:.1%} non-NaN). This may be expected for sparse/conditional factors."
+                        else:
+                            execution_feedback += self.FB_OUTPUT_FILE_FOUND
+                except NoOutputError:
+                    raise
                 except Exception as e:
                     execution_feedback += f"Error found when reading hdf file: {e}"[:1000]
                     executed_factor_value_dataframe = None

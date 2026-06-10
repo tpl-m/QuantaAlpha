@@ -15,6 +15,11 @@ import os
 import pandas as pd
 from quantaalpha.log import logger
 from quantaalpha.factors.regulator.factor_regulator import FactorRegulator
+# Runtime-safety blacklist removed (Round 14 Codex review per user decision):
+# The executor auto-rewrites bare column names (template.jinjia2:18), so blocking
+# them at proposal time only discarded factors that would execute successfully.
+# All runtime-safety call paths have been removed; grammar parsing is the sole validator.
+from quantaalpha.core.exception import FactorEmptyError
 
 DEFAULT_HISTORY_LIMIT = 6
 MIN_HISTORY_LIMIT = 1
@@ -435,7 +440,22 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
         # Detect duplicated sub-expressions
         flag = False
         expression_duplication_prompt = None
+        response_dict = {}  # Initialize before loop; prevents NameError if all iterations hit JSON parse failure
+        proposed_names = []  # Initialize before loop; prevents UnboundLocalError if all iterations hit JSON parse failure
+        proposed_exprs = []  # Initialize before loop; prevents UnboundLocalError if all iterations hit JSON parse failure
+        _best_proposed_names: list = []   # snapshot of the best validated set seen across all retries
+        _best_proposed_exprs: list = []
+        _best_response_dict: dict = {}    # corresponding response_dict for that best snapshot
+        _MAX_ITERATIONS = 8  # Hard cap: prevents infinite loops when LLM cannot satisfy quality gates
+        _iteration = 0
         while True:
+            if _iteration >= _MAX_ITERATIONS:
+                logger.warning(
+                    f"_convert_with_history_limit: reached max iterations ({_MAX_ITERATIONS}). "
+                    "Returning best factors found so far to avoid infinite loop."
+                )
+                break
+            _iteration += 1
             if flag:
                 break
                 
@@ -444,10 +464,69 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 response_dict = robust_json_parse(resp)
             except json.JSONDecodeError as e:
                 logger.warning(f"JSON parse failed: {e}, retrying...")
+                # Add feedback so the next iteration is not identical (Round 17 Codex finding).
+                # Otherwise a deterministic LLM response can loop until _MAX_ITERATIONS.
+                json_parse_feedback = (
+                    f"JSON PARSE FAILURE\n"
+                    f"The LLM response could not be parsed as valid JSON.\n"
+                    f"Error: {str(e)[:200]}\n"
+                    f"Fix: ensure the response is a valid JSON object with factor entries as {{'factor_name': {{'expression': '...', 'description': '...', ...}}}}."
+                )
+                if expression_duplication_prompt:
+                    expression_duplication_prompt += f"\n\n{json_parse_feedback}"
+                else:
+                    expression_duplication_prompt = json_parse_feedback
+                user_prompt = (
+                    Environment(undefined=StrictUndefined)
+                    .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                    .render(
+                        targets=self.targets,
+                        target_hypothesis=context["target_hypothesis"],
+                        hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                        function_lib_description=context["function_lib_description"],
+                        target_list=context["target_list"],
+                        RAG=context["RAG"],
+                        expression_duplication=expression_duplication_prompt
+                    )
+                )
                 continue
             proposed_names = []
             proposed_exprs = []
-            
+            # Count factor entries (dict values only) upfront so success detection is not
+            # coupled to the last key being a factor dict.  A trailing metadata field whose
+            # value is not a dict would otherwise prevent the snapshot from ever being saved.
+            _factor_entry_count = sum(1 for v in response_dict.values() if isinstance(v, dict))
+            _accepted_count = 0
+
+            # Detect empty JSON responses (Round 18 Codex finding).
+            # If the LLM returns {} or only non-dict values, the for-loop never runs,
+            # user_prompt is never updated, and we loop until _MAX_ITERATIONS with no state change.
+            if _factor_entry_count == 0:
+                logger.warning("LLM response contained no factor objects. Retrying with feedback.")
+                empty_response_feedback = (
+                    "EMPTY RESPONSE\n"
+                    "The LLM response was successfully parsed as JSON but contained no valid factor entries.\n"
+                    "Fix: ensure the response includes at least one factor object with keys 'expression', 'description', 'formulation', and 'variables'."
+                )
+                if expression_duplication_prompt:
+                    expression_duplication_prompt += f"\n\n{empty_response_feedback}"
+                else:
+                    expression_duplication_prompt = empty_response_feedback
+                user_prompt = (
+                    Environment(undefined=StrictUndefined)
+                    .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                    .render(
+                        targets=self.targets,
+                        target_hypothesis=context["target_hypothesis"],
+                        hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                        function_lib_description=context["function_lib_description"],
+                        target_list=context["target_list"],
+                        RAG=context["RAG"],
+                        expression_duplication=expression_duplication_prompt
+                    )
+                )
+                continue
+
             for i, factor_name in enumerate(response_dict):
                 factor_data = response_dict.get(factor_name, {})
                 if not isinstance(factor_data, dict):
@@ -456,14 +535,63 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 description = factor_data.get("description", "")
                 formulation = factor_data.get("formulation", "")
                 variables = factor_data.get("variables", {})
-                
-                # Check if expression is parsable
+
+                # Check if expression is parsable (grammar check only)
                 if not self.factor_regulator.is_parsable(expr):
                     logger.info(f"Failed to parse expr: {expr}, retrying...")
+                    parse_feedback = (
+                        f"PARSE FAILURE: {factor_name}\n"
+                        f"Expression could not be parsed as valid Qlib DSL: {expr!r}\n"
+                        f"Fix: ensure the expression uses only supported operators and functions. "
+                        f"All stock data variables must use the '$' prefix (e.g. $close, $volume)."
+                    )
+                    if expression_duplication_prompt:
+                        expression_duplication_prompt += f"\n\n{parse_feedback}"
+                    else:
+                        expression_duplication_prompt = parse_feedback
+                    user_prompt = (
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                        .render(
+                            targets=self.targets,
+                            target_hypothesis=context["target_hypothesis"],
+                            hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                            function_lib_description=context["function_lib_description"],
+                            target_list=context["target_list"],
+                            RAG=context["RAG"],
+                            expression_duplication=expression_duplication_prompt
+                        )
+                    )
                     break
                 
                 success, eval_dict = self.factor_regulator.evaluate(expr)
                 if not success:
+                    # Initial evaluation failed (e.g. regulator raised an exception).
+                    # Add feedback so retry is not identical (Round 17 Codex finding).
+                    logger.warning(f"Factor regulator evaluation failed for {factor_name}: {expr!r}")
+                    eval_failure_feedback = (
+                        f"FACTOR EVALUATION FAILURE: {factor_name}\n"
+                        f"Expression: {expr!r}\n"
+                        f"The factor regulator could not evaluate this expression.\n"
+                        f"Fix: check the expression syntax and ensure it uses valid Qlib DSL operators."
+                    )
+                    if expression_duplication_prompt:
+                        expression_duplication_prompt += f"\n\n{eval_failure_feedback}"
+                    else:
+                        expression_duplication_prompt = eval_failure_feedback
+                    user_prompt = (
+                        Environment(undefined=StrictUndefined)
+                        .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                        .render(
+                            targets=self.targets,
+                            target_hypothesis=context["target_hypothesis"],
+                            hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                            function_lib_description=context["function_lib_description"],
+                            target_list=context["target_list"],
+                            RAG=context["RAG"],
+                            expression_duplication=expression_duplication_prompt
+                        )
+                    )
                     break
                 
                 # Consistency check (if enabled)
@@ -480,21 +608,121 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                         
                         # Use corrected expression from consistency check if provided
                         if results.get("corrected_expression") and results["corrected_expression"] != expr:
-                            logger.info(f"Consistency check corrected expression: {expr} -> {results['corrected_expression']}")
-                            expr = results["corrected_expression"]
-                            factor_data["expression"] = expr
+                            corrected_expr = results["corrected_expression"]
+                            if not self.factor_regulator.is_parsable(corrected_expr):
+                                # Correction is not valid Qlib syntax (e.g. LLM returned Python-commented
+                                # multi-component code).  Honor the quality-gate rejection: add the
+                                # consistency feedback to the retry prompt so the LLM can fix its output,
+                                # then break to retry.  The _MAX_ITERATIONS cap above prevents infinite loops.
+                                logger.warning(
+                                    f"Consistency correction not parsable; quality gate rejected factor. "
+                                    f"Retrying with feedback. Correction snippet: "
+                                    f"{corrected_expr[:80].strip()!r}..."
+                                )
+                                # Always add feedback before retrying (not just when passed=False).
+                                # Otherwise the same bad correction can loop until _MAX_ITERATIONS.
+                                correction_feedback = (
+                                    f"CONSISTENCY GATE REJECTED (unparsable correction): {factor_name}\n"
+                                    f"Original feedback: {feedback or 'N/A'}\n"
+                                    f"Corrected expression could not be parsed: {corrected_expr[:80].strip()!r}\n"
+                                    f"Fix: ensure the corrected expression is a single-line Qlib DSL expression."
+                                )
+                                if expression_duplication_prompt:
+                                    expression_duplication_prompt += f"\n\n{correction_feedback}"
+                                else:
+                                    expression_duplication_prompt = correction_feedback
+                                user_prompt = (
+                                    Environment(undefined=StrictUndefined)
+                                    .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                                    .render(
+                                        targets=self.targets,
+                                        target_hypothesis=context["target_hypothesis"],
+                                        hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                                        function_lib_description=context["function_lib_description"],
+                                        target_list=context["target_list"],
+                                        RAG=context["RAG"],
+                                        expression_duplication=expression_duplication_prompt
+                                    )
+                                )
+                                break
+                            else:
+                                logger.info(f"Consistency check corrected expression: {expr} -> {corrected_expr}")
+                                expr = corrected_expr
+                                factor_data["expression"] = expr
+                                response_dict[factor_name] = factor_data
+
+                                # Grammar-check corrected expression; if it passes, validate it via regulator.
+                                success, eval_dict = self.factor_regulator.evaluate(expr)
+                                if not success:
+                                    # Corrected expression passed parsing but failed regulator evaluation.
+                                    # Add feedback before retrying so the LLM knows what went wrong.
+                                    logger.warning(f"Corrected expression failed evaluation: {expr!r}")
+                                    eval_failure_feedback = (
+                                        f"CORRECTED EXPRESSION EVALUATION FAILURE: {factor_name}\n"
+                                        f"The consistency gate's corrected expression passed parsing but failed validation.\n"
+                                        f"Expression: {expr!r}\n"
+                                        f"Fix: ensure the expression meets all complexity and duplication constraints."
+                                    )
+                                    if expression_duplication_prompt:
+                                        expression_duplication_prompt += f"\n\n{eval_failure_feedback}"
+                                    else:
+                                        expression_duplication_prompt = eval_failure_feedback
+                                    user_prompt = (
+                                        Environment(undefined=StrictUndefined)
+                                        .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                                        .render(
+                                            targets=self.targets,
+                                            target_hypothesis=context["target_hypothesis"],
+                                            hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                                            function_lib_description=context["function_lib_description"],
+                                            target_list=context["target_list"],
+                                            RAG=context["RAG"],
+                                            expression_duplication=expression_duplication_prompt
+                                        )
+                                    )
+                                    break
+
+                        # Apply corrected description independently of whether expression was corrected.
+                        # This ensures description-only fixes are not lost (Round 16 Codex finding).
+                        corrected_desc = results.get("corrected_description")
+                        if corrected_desc and corrected_desc != description:
+                            logger.info(f"Consistency check corrected description for {factor_name}")
+                            description = corrected_desc
+                            factor_data["description"] = description
                             response_dict[factor_name] = factor_data
-                            
-                            # Re-check corrected expression
-                            if not self.factor_regulator.is_parsable(expr):
-                                logger.warning(f"Corrected expression could not be parsed: {expr}")
-                                break
-                            success, eval_dict = self.factor_regulator.evaluate(expr)
-                            if not success:
-                                break
-                        
+
                         if not passed:
-                            logger.warning(f"Consistency check failed: {factor_name}, feedback: {feedback}")
+                            # Quality gate explicitly rejected this factor (passed=False).
+                            # Do not accept it even if corrected_expression was syntactically valid.
+                            # Retry so the LLM can generate a new expression that satisfies the gate.
+                            logger.warning(
+                                f"Consistency gate rejected factor '{factor_name}' (passed=False): {feedback}. "
+                                "Retrying with consistency feedback."
+                            )
+                            if feedback:
+                                consistency_feedback_item = (
+                                    f"CONSISTENCY GATE REJECTED: {factor_name}\n"
+                                    f"Feedback: {feedback}\n"
+                                    f"Fix the expression so hypothesis, description, formulation, and expression align."
+                                )
+                                if expression_duplication_prompt:
+                                    expression_duplication_prompt += f"\n\n{consistency_feedback_item}"
+                                else:
+                                    expression_duplication_prompt = consistency_feedback_item
+                                user_prompt = (
+                                    Environment(undefined=StrictUndefined)
+                                    .from_string(qa_prompt_dict["hypothesis2experiment"]["user_prompt"])
+                                    .render(
+                                        targets=self.targets,
+                                        target_hypothesis=context["target_hypothesis"],
+                                        hypothesis_and_feedback=context["hypothesis_and_feedback"],
+                                        function_lib_description=context["function_lib_description"],
+                                        target_list=context["target_list"],
+                                        RAG=context["RAG"],
+                                        expression_duplication=expression_duplication_prompt
+                                    )
+                                )
+                            break
                     except Exception as e:
                         logger.warning(f"Consistency check error: {e}")
                 
@@ -554,17 +782,49 @@ class AlphaAgentHypothesis2FactorExpression(FactorHypothesis2Experiment):
                 else:
                     proposed_names.append(factor_name)
                     proposed_exprs.append(expr)
-                    if i == len(response_dict) - 1:
+                    _accepted_count += 1
+
+                    # Persist this validated factor to the best snapshot immediately (Round 20 Codex finding).
+                    # Don't wait for all factors to pass — retain the largest validated subset across retries.
+                    # This ensures one noisy factor doesn't block all usable output from the same response.
+                    # Cross-retry deduplication (Round 21 Codex finding): check expression, not just name.
+                    # If a later retry re-emits the same expression under a different name, skip the duplicate.
+                    if factor_name not in _best_response_dict and expr not in _best_proposed_exprs:
+                        _best_proposed_names.append(factor_name)
+                        _best_proposed_exprs.append(expr)
+                        _best_response_dict[factor_name] = factor_data
+
+                    if _accepted_count == _factor_entry_count:
                         flag = True
+                        # All factor entries in this iteration passed — can exit early.
+                        # _best_* lists already contain all validated factors from above.
                     else:
                         continue
         
 
         # Add valid factors to the factor regulator
-        self.factor_regulator.add_factor(proposed_names, proposed_exprs)
-                
-                
-        return self.convert_response(resp, trace)
+        self.factor_regulator.add_factor(_best_proposed_names, _best_proposed_exprs)
+
+        # Build the returned experiment from only the best validated factor set.
+        # Using the best-snapshot (_best_proposed_names/_best_proposed_exprs) rather than
+        # the last iteration's state ensures that partial failures in later retries never
+        # discard factors that were fully validated in an earlier iteration.
+        # The raw response_dict may contain factors that failed validation (parsability,
+        # runtime-safety, duplication, consistency, or complexity checks). Shipping those
+        # would leak unvalidated factors downstream.
+        if not _best_proposed_names:
+            raise FactorEmptyError(
+                f"_convert_with_history_limit: no factors passed all validation checks after "
+                f"{_MAX_ITERATIONS} iterations. Raising FactorEmptyError so the pipeline "
+                "can skip this generation attempt and retry rather than caching a silent empty result."
+            )
+
+        validated_response = {
+            name: {**_best_response_dict[name], "expression": expr}
+            for name, expr in zip(_best_proposed_names, _best_proposed_exprs)
+            if name in _best_response_dict
+        }
+        return self.convert_response(json.dumps(validated_response), trace)
     
 
     def convert_response(self, response: str, trace: Trace) -> FactorExperiment:

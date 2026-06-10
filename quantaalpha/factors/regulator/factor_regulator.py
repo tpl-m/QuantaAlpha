@@ -1,3 +1,4 @@
+import re
 import pandas as pd
 import numpy as np
 from typing import Tuple, List, Dict, Any, Optional
@@ -9,6 +10,7 @@ from quantaalpha.factors.coder.factor_ast import (
     calculate_symbol_length, count_base_features
 )
 from quantaalpha.factors.coder.expr_parser import parse_expression
+# Runtime-safety blacklist removed (Round 14 Codex review): no longer imported.
 
 class FactorRegulator(Evaluator):
     """
@@ -44,12 +46,17 @@ class FactorRegulator(Evaluator):
     def is_parsable(self, expression: str) -> bool:
         """
         Checks if an expression can be successfully parsed.
-        
+
+        Runtime-safety blacklist was removed (Round 14 Codex review per user decision):
+        The executor auto-rewrites bare column names (template.jinjia2:18), so blocking
+        them at validation time would only reject factors that execute successfully.
+        This method now enforces only grammar parsing — the canonical validation.
+
         Args:
             expression (str): The factor expression to check.
-            
+
         Returns:
-            bool: True if the expression can be parsed, False otherwise.
+            bool: True if the expression is parsable, False otherwise.
         """
         try:
             parse_expression(expression)
@@ -57,7 +64,7 @@ class FactorRegulator(Evaluator):
         except Exception as e:
             logger.error(f"Failed to parse expression: {expression}. Error: {str(e)}")
             return False
-        
+
     def evaluate(self, expression: str) -> Tuple[int, str, Optional[str]]:
         """
         Evaluates an expression for duplication with existing factors in the factor zoo.
