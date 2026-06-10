@@ -1,0 +1,76 @@
+# ============================================================
+# QuantaAlpha Phase 0 配置 — 小批量验证试跑
+# 目的：用最小成本验证4个修复有效，跑通完整流程
+# 预期产出：约20-30个候选因子（以通过验证为主，不追求质量）
+# ============================================================
+
+planning:
+  enabled: true
+  num_directions: 3
+  max_attempts: 5
+  use_llm: true
+  allow_fallback: true
+  prompt_file: planning_prompts.yaml
+
+execution:
+  max_loops: 3
+  steps_per_loop: 5
+  step_n: null
+  use_local: true
+  parallel_execution: false
+  branch_log_root: log
+  branch_log_prefix: phase0
+
+evolution:
+  enabled: true
+  mutation_enabled: true
+  crossover_enabled: false   # Phase 0 关闭 crossover，加快验证速度
+  max_rounds: 2              # original + 1轮 mutation
+  crossover_size: 2
+  crossover_n: 0
+  parallel_enabled: false
+  prefer_diverse_crossover: true
+  prompt_file: evolution_prompts.yaml
+  parent_selection_strategy: best
+  top_percent_threshold: 0.3
+  fresh_start: true
+  cleanup_on_finish: false
+
+quality_gate:
+  consistency_enabled: true   # 开启一致性检查
+  complexity_enabled: true
+  redundancy_enabled: true
+  consistency_strict_mode: false
+  max_correction_attempts: 3
+
+factor:
+  factors_per_hypothesis: 1
+  complexity:
+    symbol_length_threshold: 300   # 由 .env FACTOR_COSTEER_SYMBOL_LENGTH_THRESHOLD 实际控制
+    base_features_threshold: 7     # 由 .env FACTOR_COSTEER_BASE_FEATURES_THRESHOLD 实际控制
+    free_args_ratio_threshold: 0.5
+  duplication:
+    enabled: true
+    threshold: 8
+    factor_zoo_path: null
+
+backtest:
+  use_docker: false
+  timeout: 800
+  qlib:
+    config_name: conf_baseline.yaml
+
+llm:
+  factor_mining_timeout: 999999
+  max_retries: 5
+  retry_delay: 1.0
+  json_mode_strict: true
+
+logging:
+  level: INFO
+  save_snapshots: true
+  save_trajectory_pool: true
+
+prompts:
+  planning: planning_prompts.yaml
+  evolution: evolution_prompts.yaml

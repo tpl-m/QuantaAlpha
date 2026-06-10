@@ -235,21 +235,43 @@ def main():
 聚宽平台 - 加载QuantaAlpha模型
 
 前提条件：
-1. 将 quantaalpha_model.pkl 上传到聚宽平台
+1. 将 quantaalpha_model.txt 上传到聚宽平台（企业版）
 2. 聚宽企业版支持文件上传和lightgbm库
 
 使用步骤：
-1. 上传模型文件
+1. 上传 quantaalpha_model.txt 文件
 2. 复制本脚本到策略代码
 3. 运行回测
+
+注意：聚宽平台不支持直接 open() 读取文件，
+      必须使用 read_file() + tempfile + lgb.Booster 方式加载 .txt 模型。
 """
 
-import pickle
+import lightgbm as lgb
+import tempfile
+import os
 import numpy as np
 
 BENCHMARK = "000300.XSHG"
 INIT_CAPITAL = 1000000
 TOP_K = 50
+MODEL_FILE = "quantaalpha_model.txt"  # 上传到聚宽的模型文件名
+
+def load_model_official():
+    """使用聚宽官方 API 加载 LightGBM .txt 模型"""
+    import contextlib
+    model_bytes = read_file(MODEL_FILE)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='wb')
+    tmp_path = tmp.name
+    try:
+        with tmp:  # guarantees close even if write/flush raises
+            tmp.write(model_bytes)
+            tmp.flush()
+        model = lgb.Booster(model_file=tmp_path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp_path)
+    return model
 
 def initialize(context):
     """初始化"""
@@ -267,9 +289,7 @@ def initialize(context):
 
     log.info("加载模型...")
     try:
-        # 加载上传的模型文件
-        with open('quantaalpha_model.pkl', 'rb') as f:
-            g.model = pickle.load(f)
+        g.model = load_model_official()
         log.info("✅ 模型加载成功")
     except Exception as e:
         log.error(f"❌ 模型加载失败: {e}")
@@ -345,6 +365,16 @@ def rebalance(context):
 
 def handle_data(context, data):
     pass
+
+def after_code_changed(context):
+    """代码修改后重新加载模型（聚宽热更新回调）"""
+    log.info("代码已更新，重新加载模型...")
+    try:
+        g.model = load_model_official()
+        log.info("✅ 模型重新加载成功")
+    except Exception as e:
+        log.error(f"❌ 模型重新加载失败: {e}")
+        g.model = None
 ''')
 
     print(f"✅ 聚宽脚本: {jk_script}")
@@ -355,21 +385,23 @@ def handle_data(context, data):
     print("=" * 70)
 
     print("\n📦 生成的文件（exported_models/）:")
-    print(f"  1. quantaalpha_model.pkl     - 模型文件（上传聚宽）")
-    print(f"  2. quantaalpha_model.txt     - LightGBM原生格式")
+    print(f"  1. quantaalpha_model.txt     - LightGBM原生格式（⭐ 主要生产格式，上传聚宽）")
+    print(f"  2. quantaalpha_model.pkl     - pickle备用格式（本地验证用）")
     print(f"  3. model_metadata.txt        - 模型元信息")
-    print(f"  4. load_model_joinquant.py   - 聚宽加载脚本")
+    print(f"  4. load_model_joinquant.py   - 聚宽加载脚本（使用 .txt 格式）")
 
     print("\n📋 后续步骤:")
-    print("  1. 打开聚宽平台（企业版）")
-    print("  2. 上传 quantaalpha_model.pkl 文件")
-    print("  3. 创建新策略，复制 load_model_joinquant.py 内容")
-    print("  4. 运行回测")
+    print("  1. 运行 test_txt_loading.py 验证 .txt 格式可正常加载（⭐ 主要门控）")
+    print("  2. 打开聚宽平台（企业版）")
+    print("  3. 上传 quantaalpha_model.txt 文件")
+    print("  4. 创建新策略，复制 load_model_joinquant.py 内容")
+    print("  5. 运行回测")
 
     print("\n⚠️  注意:")
     print("  - 模型文件大小:", pkl_file.stat().st_size / 1024 / 1024, "MB")
     print("  - 聚宽基础版不支持上传文件")
     print("  - 需要聚宽企业版 + lightgbm库支持")
+    print("  - 聚宽平台必须使用 .txt 格式（不支持 pickle + open()）")
 
     return 0
 

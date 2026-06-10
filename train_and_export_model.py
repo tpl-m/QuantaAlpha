@@ -270,22 +270,27 @@ def create_joinquant_loader_script(model_filename: str, output_dir: Path):
     """
     创建聚宽平台加载模型的脚本
     """
+    # Ensure we always reference the .txt format for JoinQuant
+    txt_model_filename = model_filename.replace('.pkl', '.txt')
     script_path = output_dir / "load_model_joinquant.py"
 
     script_content = f'''"""
 聚宽平台 - 加载上传的ML模型
 
 使用步骤：
-1. 将模型文件（{model_filename}）上传到聚宽平台
+1. 将模型文件（{txt_model_filename}）上传到聚宽平台（企业版）
 2. 将本脚本内容复制到策略代码中
 3. 运行回测
 
 注意：
+- 聚宽平台不支持直接 open() 读取文件，必须使用 read_file() + tempfile
+- 只支持 LightGBM .txt 原生格式，不支持 pickle
 - 聚宽企业版支持上传模型文件
-- 基础版可能需要使用在线训练方案
 """
 
-import pickle
+import lightgbm as lgb
+import tempfile
+import os
 import numpy as np
 import pandas as pd
 
@@ -295,9 +300,25 @@ INIT_CAPITAL = 1000000
 TOP_K = 50
 REBALANCE_DAYS = 20
 
-# 模型文件名（上传后的文件）
-MODEL_FILENAME = "{model_filename}"
+# 模型文件名（上传后的文件，必须是 .txt 格式）
+MODEL_FILENAME = "{txt_model_filename}"
 # ===========================================================
+
+def load_model_official():
+    """使用聚宽官方 API 加载 LightGBM .txt 模型"""
+    import contextlib
+    model_bytes = read_file(MODEL_FILENAME)
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='wb')
+    tmp_path = tmp.name
+    try:
+        with tmp:  # guarantees close even if write/flush raises
+            tmp.write(model_bytes)
+            tmp.flush()
+        model = lgb.Booster(model_file=tmp_path)
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(tmp_path)
+    return model
 
 def initialize(context):
     """初始化函数 - 加载模型"""
@@ -323,7 +344,7 @@ def initialize(context):
 
     # 加载模型
     try:
-        g.model = load_uploaded_model()
+        g.model = load_model_official()
         log.info(f"✅ 模型加载成功！")
     except Exception as e:
         log.error(f"❌ 模型加载失败: {{e}}")
@@ -333,23 +354,6 @@ def initialize(context):
 
     # 设置每月调仓
     run_monthly(rebalance, 1)
-
-def load_uploaded_model():
-    """
-    加载上传的模型文件
-
-    聚宽企业版支持读取上传的文件
-    """
-    # 方法1：直接加载pickle文件
-    with open(MODEL_FILENAME, 'rb') as f:
-        model = pickle.load(f)
-
-    return model
-
-    # 方法2：如果是LightGBM模型，使用原生加载
-    # import lightgbm as lgb
-    # model = lgb.Booster(model_file=MODEL_FILENAME)
-    # return model
 
 def calculate_factors_for_stock(stock, date):
     """
@@ -446,6 +450,16 @@ def rebalance(context):
 def handle_data(context, data):
     """每日交易逻辑"""
     pass
+
+def after_code_changed(context):
+    """代码修改后重新加载模型（聚宽热更新回调）"""
+    log.info("代码已更新，重新加载模型...")
+    try:
+        g.model = load_model_official()
+        log.info("✅ 模型重新加载成功")
+    except Exception as e:
+        log.error(f"❌ 模型重新加载失败: {{e}}")
+        g.model = None
 
 def after_trading_end(context):
     """收盘后"""

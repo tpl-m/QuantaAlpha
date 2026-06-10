@@ -5,7 +5,6 @@
 在上传聚宽前运行此脚本，确保模型文件正确
 """
 
-import pickle
 import numpy as np
 from pathlib import Path
 
@@ -15,49 +14,83 @@ def verify_model_file():
     print("验证QuantaAlpha模型文件")
     print("=" * 70)
 
-    model_file = Path(__file__).parent / "exported_models/quantaalpha_model.pkl"
+    exported_dir = Path(__file__).parent / "exported_models"
+    model_file = exported_dir / "quantaalpha_model.pkl"
+    txt_file = exported_dir / "quantaalpha_model.txt"
 
-    # 检查文件存在
-    if not model_file.exists():
-        print(f"\n❌ 模型文件不存在: {model_file}")
-        print("请先运行 train_model_simple.py 训练模型")
+    # 检查主要生产文件（.txt）
+    print("\n--- 主要生产格式 (.txt) ---")
+    if not txt_file.exists():
+        print(f"❌ .txt模型文件不存在: {txt_file}")
+        print("请先运行 train_model_simple.py 训练并导出模型")
         return False
 
-    print(f"\n✅ 模型文件存在")
-    print(f"   路径: {model_file}")
-    print(f"   大小: {model_file.stat().st_size / 1024:.2f} KB")
+    print(f"✅ .txt模型文件存在")
+    print(f"   路径: {txt_file}")
+    print(f"   大小: {txt_file.stat().st_size / 1024:.2f} KB")
 
-    # 尝试加载模型
-    print("\n正在加载模型...")
+    # 验证.txt文件可加载（聚宽部署门控）
+    print("\n正在验证.txt模型加载（聚宽部署门控）...")
     try:
-        with open(model_file, 'rb') as f:
-            model = pickle.load(f)
-        print("✅ 使用pickle加载成功")
+        import lightgbm as lgb
+        import tempfile
+        import os
+        import contextlib
+        with open(txt_file, 'rb') as f:
+            model_bytes = f.read()
+        tmp = tempfile.NamedTemporaryFile(delete=False, suffix='.txt', mode='wb')
+        tmp_path = tmp.name
+        try:
+            with tmp:  # guarantees close even if write/flush raises
+                tmp.write(model_bytes)
+                tmp.flush()
+            lgb_model = lgb.Booster(model_file=tmp_path)
+        finally:
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(tmp_path)
+        print("✅ .txt格式加载成功（lgb.Booster）")
+        print(f"   树数量: {lgb_model.num_trees()}")
+        print(f"   特征数: {lgb_model.num_feature()}")
     except Exception as e:
-        print(f"❌ pickle加载失败: {e}")
+        print(f"❌ .txt格式加载失败: {e}")
+        print("⭐ .txt格式是聚宽部署的主要门控，此错误需修复才能部署")
         return False
 
-    # 检查模型类型
-    print(f"\n模型信息:")
-    print(f"  类型: {type(model).__name__}")
-
-    # 检查LightGBM特有属性
-    if hasattr(model, 'num_trees'):
-        print(f"  树数量: {model.num_trees()}")
+    # 检查备用格式（.pkl）— 本地验证用，非必需
+    print("\n--- 备用格式 (.pkl，本地验证用）---")
+    if not model_file.exists():
+        print(f"⚠️  .pkl文件不存在: {model_file}")
+        print("   （备用格式，不影响聚宽部署）")
     else:
-        print("  ⚠️  警告: 不是LightGBM模型")
+        print(f"✅ .pkl文件存在")
+        print(f"   路径: {model_file}")
+        print(f"   大小: {model_file.stat().st_size / 1024:.2f} KB")
 
-    if hasattr(model, 'num_feature'):
-        print(f"  特征数: {model.num_feature()}")
-    else:
-        print("  ⚠️  警告: 无法获取特征数量")
+        # 检查pickle协议版本
+        print("\n检查pickle协议版本...")
+        with open(model_file, 'rb') as f:
+            header = f.read(2)
 
-    # 测试预测
-    print("\n测试预测功能...")
+        # Binary pickles (protocol >= 2) start with opcode 0x80 followed by the protocol byte.
+        # Reading only the first byte returns 0x80 (=128), not the actual protocol number.
+        if len(header) >= 2 and header[0] == 0x80:
+            protocol = header[1]
+        else:
+            protocol = 0  # protocol 0 or 1 — text-based, no 0x80 prefix
+
+        print(f"   Pickle协议版本: {protocol}")
+
+        if protocol <= 4:
+            print(f"   ✅ 协议版本{protocol}兼容Python 3.4+")
+        else:
+            print(f"   ⚠️  协议版本{protocol}可能不兼容旧版本Python")
+            print(f"   建议使用protocol=4重新保存")
+
+    # 测试预测功能（使用.txt加载的模型）
+    print("\n测试预测功能（基于.txt模型）...")
     try:
-        # 创建测试输入（3个特征）
         test_input = np.random.randn(1, 3)
-        prediction = model.predict(test_input)
+        prediction = lgb_model.predict(test_input)
 
         print(f"✅ 预测成功")
         print(f"   输入shape: {test_input.shape}")
@@ -67,20 +100,6 @@ def verify_model_file():
         print(f"❌ 预测失败: {e}")
         return False
 
-    # 检查pickle协议版本
-    print("\n检查pickle协议版本...")
-    with open(model_file, 'rb') as f:
-        first_byte = f.read(1)
-        protocol = ord(first_byte)
-
-    print(f"   Pickle协议版本: {protocol}")
-
-    if protocol <= 4:
-        print(f"   ✅ 协议版本{protocol}兼容Python 3.4+")
-    else:
-        print(f"   ⚠️  协议版本{protocol}可能不兼容旧版本Python")
-        print(f"   建议使用protocol=4重新保存")
-
     # 最终检查
     print("\n" + "=" * 70)
     print("验证完成！")
@@ -88,9 +107,10 @@ def verify_model_file():
 
     print("\n✅ 模型文件可以正常使用")
     print("\n下一步：")
-    print("  1. 登录聚宽平台（企业版）")
-    print("  2. 上传 exported_models/quantaalpha_model.pkl")
-    print("  3. 运行策略脚本 factor_combined_meanreversion.py")
+    print("  1. 确认 exported_models/quantaalpha_model.txt 存在（主要生产格式）✅ 已验证")
+    print("  2. 运行 test_txt_loading.py 验证 .txt 格式可加载（⭐ 主要门控）✅ 本脚本已验证")
+    print("  3. 将 exported_models/quantaalpha_model.txt 上传至聚宽平台")
+    print("  4. 运行策略脚本 jukuan_scrips/factor_combined_meanreversion.py")
 
     return True
 

@@ -128,7 +128,14 @@ function_lib_description: |-
 
 
 factor_experiment_output_format: |-
-  Do NOT use any undeclared variables. The factor expression should be strictly based on the function library (e.g. `RANK(.)`) and the variables provided in data (e.g., `$open`). 
+  Do NOT use any undeclared variables. The factor expression should be strictly based on the function library (e.g. `RANK(.)`) and the variables provided in data (e.g., `$open`).
+
+  ⚠️ CRITICAL SYNTAX RULES — violations will cause silent runtime failures and your factor will be REJECTED:
+  1. ALL stock data variables MUST use the '$' prefix: $close, $open, $high, $low, $volume, $return.
+     NEVER write bare names: volume, close, open, high, low, return (without '$').
+  2. NEVER use Python-style expressions: no list comprehensions, no lambda, no import statements.
+  3. Every expression must use at least one '$'-prefixed variable.
+
   The output should follow JSON format without other content. The schema is as follows:
   {
       "factor name 1": {

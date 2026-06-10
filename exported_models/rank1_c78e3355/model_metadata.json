@@ -1,0 +1,21 @@
+{
+  "label": "rank1_c78e3355",
+  "source_workspace": "c78e3355a7e945569be39e6d4adde6e2",
+  "source_params_pkl": "git_ignore_folder/RD-Agent_workspace/c78e3355a7e945569be39e6d4adde6e2/mlruns/102236193096145320/ba0f844086f74ffebfdfa7c7df7c4386/artifacts/params.pkl",
+  "num_trees": 70,
+  "num_features": 7,
+  "extraction_method": "qlib LGBModel.model (lgb.Booster)",
+  "factor_names": [
+    "('feature', 'Gap_Range_Mean_Reversion_5D')",
+    "('feature', 'Close_Position_Deviation_Factor_10D')",
+    "('feature', 'Overnight_Intraday_Asymmetry_20D')"
+  ],
+  "backtest_metrics": {
+    "ICIR": "0.16097848644569518",
+    "IC": "0.020403941140215372",
+    "RankIC": "0.0369034402910545",
+    "AnnReturn": "0.08185961847463591",
+    "InfoRatio": "0.645441915179855",
+    "MaxDD": "-0.0892639300490081"
+  }
+}

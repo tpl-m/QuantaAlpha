@@ -1,0 +1,21 @@
+{
+  "label": "rank3_cc9db71a",
+  "source_workspace": "cc9db71adb2e4469a0898e4fb1ede5de",
+  "source_params_pkl": "git_ignore_folder/RD-Agent_workspace/cc9db71adb2e4469a0898e4fb1ede5de/mlruns/351014529710705606/28a94231fa7f4412bbd47fb82826bdae/artifacts/params.pkl",
+  "num_trees": 43,
+  "num_features": 7,
+  "extraction_method": "qlib LGBModel.model (lgb.Booster)",
+  "factor_names": [
+    "('feature', 'Price_Volume_Rank_Divergence_10D')",
+    "('feature', 'Normalized_Price_Volume_Divergence_10D')",
+    "('feature', 'Liquidity_Adjusted_Divergence_10D')"
+  ],
+  "backtest_metrics": {
+    "ICIR": "0.15332423113653712",
+    "IC": "0.02063509167876449",
+    "RankIC": "0.038037670497006536",
+    "AnnReturn": "0.16604319665549044",
+    "InfoRatio": "1.2374219236339374",
+    "MaxDD": "-0.08248590790835567"
+  }
+}

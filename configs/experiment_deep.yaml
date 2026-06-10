@@ -1,0 +1,83 @@
+# ============================================================
+# QuantaAlpha Phase 1 配置 — 大批量深度因子挖掘
+# 目的：在Phase 0验证通过后，进行大规模因子搜索
+# 预期产出：200-400个通过验证的候选因子
+#
+# 因子数量估算：
+#   Original:  12方向 × 10轮 × ~2因子 = 240
+#   Mutation:  12方向 × 10轮 × ~2因子 = 240  (每mutation轮)
+#   Crossover:  8组   × 10轮 × ~2因子 = 160  (每crossover轮)
+#   max_rounds=10 含 original + mutation×4 + crossover×5 轮交替
+#   候选总量（含失败）≈ 640；预计通过验证（60%）≈ 380
+# ============================================================
+
+planning:
+  enabled: true
+  num_directions: 12          # 12个探索方向（见 launcher 命令中的方向描述）
+  max_attempts: 5
+  use_llm: true
+  allow_fallback: true
+  prompt_file: planning_prompts.yaml
+
+execution:
+  max_loops: 10               # 每个方向深度迭代10轮
+  steps_per_loop: 5
+  step_n: null
+  use_local: true
+  parallel_execution: false
+  branch_log_root: log
+  branch_log_prefix: phase1
+
+evolution:
+  enabled: true
+  mutation_enabled: true
+  crossover_enabled: true
+  max_rounds: 10              # 深度进化：original + 多轮 mutation/crossover 交替
+  crossover_size: 4           # 每次crossover取4个parent，组合多样性更强
+  crossover_n: 8              # 每轮crossover生成8个组合
+  parallel_enabled: false
+  prefer_diverse_crossover: true
+  prompt_file: evolution_prompts.yaml
+  parent_selection_strategy: top_percent_plus_random  # 兼顾利用最优与探索多样性
+  top_percent_threshold: 0.3
+  fresh_start: true
+  cleanup_on_finish: false
+
+quality_gate:
+  consistency_enabled: true
+  complexity_enabled: true
+  redundancy_enabled: true
+  consistency_strict_mode: false
+  max_correction_attempts: 5   # 更多修正机会
+
+factor:
+  factors_per_hypothesis: 1
+  complexity:
+    symbol_length_threshold: 300   # 由 .env FACTOR_COSTEER_SYMBOL_LENGTH_THRESHOLD 实际控制
+    base_features_threshold: 7     # 由 .env FACTOR_COSTEER_BASE_FEATURES_THRESHOLD 实际控制
+    free_args_ratio_threshold: 0.5
+  duplication:
+    enabled: true
+    threshold: 8
+    factor_zoo_path: null
+
+backtest:
+  use_docker: false
+  timeout: 800
+  qlib:
+    config_name: conf_baseline.yaml
+
+llm:
+  factor_mining_timeout: 999999
+  max_retries: 5
+  retry_delay: 1.0
+  json_mode_strict: true
+
+logging:
+  level: INFO
+  save_snapshots: true
+  save_trajectory_pool: true
+
+prompts:
+  planning: planning_prompts.yaml
+  evolution: evolution_prompts.yaml

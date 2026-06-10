@@ -1,0 +1,21 @@
+{
+  "label": "rank2_7158d12e",
+  "source_workspace": "7158d12ee3054739a762bff1cf9faccc",
+  "source_params_pkl": "git_ignore_folder/RD-Agent_workspace/7158d12ee3054739a762bff1cf9faccc/mlruns/499116701983217727/7fa5749ec67944bd9ea84af5f5f770ac/artifacts/params.pkl",
+  "num_trees": 55,
+  "num_features": 7,
+  "extraction_method": "qlib LGBModel.model (lgb.Booster)",
+  "factor_names": [
+    "('feature', 'Turnover_Acceleration_10D_vs_20D')",
+    "('feature', 'Volume_Percentile_Shift_5D_vs_20D')",
+    "('feature', 'Liquidity_Regime_Divergence_Signal')"
+  ],
+  "backtest_metrics": {
+    "ICIR": "0.15688722511480416",
+    "IC": "0.019170654838587462",
+    "RankIC": "0.03591075316989046",
+    "AnnReturn": "0.14834607929492566",
+    "InfoRatio": "1.283116895051597",
+    "MaxDD": "-0.07533948433975522"
+  }
+}
