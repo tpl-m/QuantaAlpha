@@ -33,7 +33,14 @@ from datetime import datetime
 import numpy as np
 import pandas as pd
 
-project_root = Path(__file__).resolve().parent
+_script_dir = Path(__file__).resolve().parent
+# Support packaged layout: when running from algorithm/, resolve to package root
+if (_script_dir.parent / "models").exists() and (_script_dir.parent / "docs").exists():
+    project_root = _script_dir.parent  # packaged: algorithm/ → parent
+elif (_script_dir / "models").exists():
+    project_root = _script_dir  # already at package root
+else:
+    project_root = _script_dir  # source tree
 sys.path.insert(0, str(project_root))
 
 
@@ -51,9 +58,30 @@ QUALITY_GATES = {
 
 
 def parse_args():
+    # Detect package root for both source-tree and packaged layouts
+    import os
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    # If running from algorithm/ inside a package, resolve to package root (parent)
+    if os.path.isdir(os.path.join(script_dir, "models")):
+        # Running from package root directly
+        package_root = script_dir
+        default_model = "models/quantaalpha_model.txt"
+    elif os.path.isdir(os.path.join(os.path.dirname(script_dir), "models")):
+        # Running from algorithm/ inside package
+        package_root = os.path.dirname(script_dir)
+        default_model = "models/quantaalpha_model.txt"
+    elif os.path.isdir(os.path.join(script_dir, "exported_models")):
+        # Source tree
+        package_root = script_dir
+        default_model = "exported_models/quantaalpha_model.txt"
+    else:
+        # Fallback: source tree
+        package_root = script_dir
+        default_model = "exported_models/quantaalpha_model.txt"
+
     parser = argparse.ArgumentParser(description="QuantaAlpha模型综合评估")
     parser.add_argument("--model-file", type=str,
-                        default="exported_models/quantaalpha_model.txt",
+                        default=default_model,
                         help="模型文件路径（.txt或.pkl）")
     parser.add_argument("--factors", type=str, default=None,
                         help="因子表达式，逗号分隔。默认使用v1.0三因子")

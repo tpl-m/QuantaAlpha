@@ -13,9 +13,12 @@ QuantaAlpha模型训练与导出
 """
 
 import sys
+import json
 import pickle
 import argparse
 from pathlib import Path
+
+import pandas as pd
 
 project_root = Path(__file__).resolve().parent
 sys.path.insert(0, str(project_root))
@@ -42,149 +45,34 @@ FACTOR_MODES = {
         "(Mean($close, 5) - Mean($close, 20)) / (Std($close, 20) + 1e-8)",
         # 因子4: 波动率加速度（波动率类，新增）
         "(Std($close/Ref($close,1)-1, 5) - Std($close/Ref($close,1)-1, 20)) / (Std($close/Ref($close,1)-1, 20) + 1e-8)",
-        # 因子5: 量价背离（量价类，精简版）
-        "Rank($close / Mean($close, 10)) - Rank($volume / Mean($volume, 10))",
+        # 因子5: 量价背离（量价类，精简版，Rank需要(feature, window)参数）
+        "Rank($close / (Mean($close, 10) + 1e-8), 60) - Rank($volume / (Mean($volume, 10) + 1e-8), 60)",
+    ],
+    "v4.0": [
+        # Phase 1从factorlib 75因子中按ICIR选优（5因子，覆盖5个驱动逻辑）
+        # 因子1: Gap_Range_Mean_Reversion_5D（均值回归类，ICIR=0.1610）
+        "((($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8) - Mean(($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8), 5)) / (Std(($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8), 5) + 1e-8))",
+        # 因子2: Close_Position_Deviation_Factor_10D（动量/趋势类，ICIR=0.1610）
+        "Rank(Abs(($close - $low) / ($high - $low + 1e-8) - 0.5), 10)",
+        # 因子3: Overnight_Intraday_Asymmetry_20D（其他类，ICIR=0.1610）
+        "Corr(($open - Ref($close, 1)) / (Ref($close, 1) + 1e-8), ($close - $low) / ($high - $low + 1e-8), 20)",
+        # 因子4: Turnover_Acceleration_10D_vs_20D（量价关系类，ICIR=0.1569）
+        "Rank((Mean(Delta($volume, 1), 10) - Mean(Delta($volume, 1), 20)) / (Std(Delta($volume, 1), 20) + 1e-8), 60)",
+        # 因子5: Abnormal_Return_Persistence_Score（波动率类，ICIR=0.1370）
+        "Count(Abs(($close - Ref($close, 1)) / (Ref($close, 1) + 1e-8) - Mean(($close - Ref($close, 1)) / (Ref($close, 1) + 1e-8), 20)) > 1.5 * Std(($close - Ref($close, 1)) / (Ref($close, 1) + 1e-8), 20), 5) / 5",
     ],
 }
 
 FACTOR_NAMES = {
     "v1.0": ["Hurst_Proxy", "AR1_Reversion", "OU_MeanReversion"],
     "v3.0": ["Hurst_Proxy", "TS_Momentum", "Trend_Strength", "Vol_Acceleration", "PV_Divergence"],
+    "v4.0": ["Gap_Range_MR_5D", "Close_Pos_Dev_10D", "Overnight_Asym_20D", "Turnover_Accel_10v20", "AbnRet_Persist"],
 }
 
 
-def main():
-    parser = argparse.ArgumentParser(description="QuantaAlpha模型训练")
-    parser.add_argument("--mode", type=str, default="v1.0", choices=["v1.0", "v3.0"],
-                        help="因子模式: v1.0(三因子) 或 v3.0(五因子)")
-    parser.add_argument("--skip-rolling", action="store_true",
-                        help="跳过滚动IC计算（节省时间）")
-    args = parser.parse_args()
-
-    factor_expressions = FACTOR_MODES[args.mode]
-    factor_names = FACTOR_NAMES[args.mode]
-    print("=" * 70)
-    print(f"QuantaAlpha模型训练与导出 ({args.mode}模式)")
-    print("=" * 70)
-
-    #  Step 1: 初始化Qlib
-    print("\nStep 1: 初始化Qlib...")
-    import qlib
-    provider_uri = Path.home() / ".qlib/qlib_data/cn_data"
-    qlib.init(provider_uri=str(provider_uri), region='cn')
-    print(f"✅ Qlib初始化: {provider_uri}")
-
-    # Step 2: 打印因子表达式
-    print("\nStep 2: 因子表达式...")
-    print(f"  模式: {args.mode} ({len(factor_expressions)}因子)")
-    for i, (name, expr) in enumerate(zip(factor_names, factor_expressions), 1):
-        print(f"  因子{i} ({name}): {expr[:80]}...")
-
-    # Step 3: 计算特征
-    print("\nStep 3: 计算特征数据...")
-    from qlib.data import D
-
-    # 获取CSI300成分股列表（使用list_instruments转为Python list）
-    from qlib.data import D as data_api
-    start_time = "2016-01-01"
-    end_time = "2025-12-26"
-
-    instruments_obj = data_api.instruments('csi300')
-    instruments = data_api.list_instruments(
-        instruments=instruments_obj,
-        start_time=start_time,
-        end_time=end_time,
-        as_list=True,
-    )
-
-    print(f"  标的: CSI300 ({len(instruments)} stocks)")
-    print(f"  时间: {start_time} ~ {end_time}")
-
-    features_df = D.features(instruments, factor_expressions, start_time=start_time, end_time=end_time)
-    features_df.columns = [f'factor_{i+1}' for i in range(len(factor_expressions))]
-
-    print(f"✅ 特征数据: {features_df.shape}")
-    print(f"  样本数: {len(features_df)}")
-    print(f"  NaN比例: {features_df.isnull().sum().sum() / features_df.size * 100:.2f}%")
-
-    # Step 4: 计算标签（未来2日收益率）
-    print("\nStep 4: 计算标签...")
-    label_expr = "Ref($close, -2)/$close - 1"  # 未来2日收益率
-    label_df = D.features(instruments, [label_expr], start_time=start_time, end_time=end_time)
-    label_df.columns = ['label']
-
-    print(f"✅ 标签数据: {label_df.shape}")
-
-    # Step 5: 合并并清理数据
-    print("\nStep 5: 准备训练数据...")
-    data_df = features_df.join(label_df, how='inner').dropna()
-
-    print(f"  有效样本: {len(data_df)}")
-
-    # 检查实际数据范围
-    # Qlib D.features()返回的MultiIndex是(instrument, datetime)，level 1是日期
-    dates_index = data_df.index.get_level_values(1)
-    all_dates = sorted(dates_index.unique())
-    n_dates = len(all_dates)
-    data_start = all_dates[0]
-    data_end = all_dates[-1]
-    print(f"  数据范围: {str(data_start)[:10]} ~ {str(data_end)[:10]} ({n_dates} 交易日)")
-
-    # 按年份切分: train 2016-2023, valid 2024, test 2025
-    # 使用全量数据训练，覆盖多种市场regime
-    import pandas as pd
-    train_end_date = pd.Timestamp("2023-12-31")
-    valid_start_date = pd.Timestamp("2024-01-01")
-    valid_end_date = pd.Timestamp("2024-12-31")
-    test_start_date = pd.Timestamp("2025-01-01")
-
-    train_mask = dates_index <= train_end_date
-    valid_mask = (dates_index >= valid_start_date) & (dates_index <= valid_end_date)
-    test_mask  = dates_index >= test_start_date
-
-    train_df = data_df[train_mask]
-    valid_df = data_df[valid_mask]
-    test_df = data_df[test_mask]
-
-    print(f"  训练集: {len(train_df)} (2016-01-01 ~ 2023-12-31, 全量8年)")
-    print(f"  验证集: {len(valid_df)} (2024-01-01 ~ 2024-12-31)")
-    print(f"  测试集: {len(test_df)} (2025-01-01 ~ {str(data_end)[:10]})")
-
-    if len(valid_df) == 0:
-        print("  ⚠️  验证集为空（数据未覆盖2024年），使用训练集最后20%作为验证")
-        # Fallback: 使用旧方案的百分比切分
-        train_end_idx = int(n_dates * 0.80)
-        train_df = data_df[dates_index < all_dates[train_end_idx]]
-        valid_df = data_df[dates_index >= all_dates[train_end_idx]]
-        test_df = valid_df  # 数据不足时test=valid
-
-    factor_cols = [f'factor_{i+1}' for i in range(len(factor_expressions))]
-
-    X_train = train_df[factor_cols].values
-    y_train = train_df['label'].values
-
-    X_valid = valid_df[factor_cols].values
-    y_valid = valid_df['label'].values
-
-    X_test = test_df[factor_cols].values
-    y_test = test_df['label'].values
-
-    # Step 6: 训练LightGBM模型
-    print("\nStep 6: 训练LightGBM模型...")
-
-    try:
-        import lightgbm as lgb
-    except ImportError:
-        print("❌ lightgbm未安装")
-        print("安装: pip install lightgbm")
-        return 1
-
-    import numpy as np
-
-    train_data = lgb.Dataset(X_train, label=y_train)
-    valid_data = lgb.Dataset(X_valid, label=y_valid, reference=train_data)
-
-    params = {
+def _get_default_params() -> dict:
+    """Default LightGBM hyperparameters (v1.0/v3.0/v4.0)."""
+    return {
         'objective': 'regression',
         'metric': 'mse',
         'learning_rate': 0.05,
@@ -197,6 +85,298 @@ def main():
         'num_threads': 20,
         'verbose': -1
     }
+
+
+def load_optuna_best_config() -> dict:
+    """Load the best configuration from Optuna search results."""
+    # Support both source-tree and packaged layouts
+    script_dir = Path(__file__).resolve().parent
+    if (script_dir.parent / "docs" / "optuna_search_results" / "best_configuration.json").exists():
+        # Packaged: algorithm/ → docs/optuna_search_results/
+        config_file = script_dir.parent / "docs" / "optuna_search_results" / "best_configuration.json"
+    else:
+        # Source tree
+        config_file = project_root / "optuna_search_results" / "best_configuration.json"
+
+    if not config_file.exists():
+        print(f"❌ Optuna最优配置不存在: {config_file}")
+        print("请先运行: python3 train_model_optuna.py")
+        sys.exit(1)
+
+    config = json.loads(config_file.read_text())
+    print(f"✅ 加载Optuna最优配置 (Trial #{config['trial_number']})")
+    print(f"  Score: {config['score']:.6f}")
+    print(f"  因子数: {config['n_factors']}")
+    print(f"  选中因子: {config['selected_factors']}")
+    return config
+
+
+def load_v5_features_from_cache(optuna_config: dict) -> tuple:
+    """v5.0: Load features from Phase 1 cache instead of re-querying Qlib.
+
+    Returns (features_df, label_df, factor_names, factor_cols, selected_exprs).
+    """
+    # Support both source-tree and packaged layouts
+    script_dir = Path(__file__).resolve().parent
+    if (script_dir.parent / "docs" / "feature_cache_labeled.h5").exists():
+        # Packaged: algorithm/ → check docs/
+        labeled_file = script_dir.parent / "docs" / "feature_cache_labeled.h5"
+    else:
+        # Source tree
+        labeled_file = project_root / "feature_cache_labeled.h5"
+
+    if not labeled_file.exists():
+        print(f"❌ 特征缓存不存在: {labeled_file}")
+        print("请先运行 Phase 1: python3 compute_feature_cache.py")
+        sys.exit(1)
+
+    print("\nStep 1 (v5.0): 从Phase 1缓存加载特征...")
+    data_df = pd.read_hdf(labeled_file, key='data')
+    print(f"  ✅ 加载缓存: {data_df.shape}")
+
+    # Get selected columns from Optuna config
+    selected_cols = optuna_config.get("selected_columns", [])
+    selected_names = optuna_config.get("selected_factors", [])
+    selected_exprs = optuna_config.get("selected_expressions", [])
+
+    if not selected_cols:
+        print("❌ Optuna配置中无selected_columns")
+        sys.exit(1)
+
+    # Select only the chosen factor columns + label
+    available_cols = [c for c in selected_cols if c in data_df.columns]
+    missing_cols = [c for c in selected_cols if c not in data_df.columns]
+
+    if missing_cols:
+        print(f"  ⚠️  以下列在缓存中缺失（可能是衍生特征）: {missing_cols[:5]}")
+
+    if 'label' not in data_df.columns:
+        print("❌ 缓存中无label列")
+        sys.exit(1)
+
+    features_df = data_df[available_cols].copy()
+    label_df = data_df[['label']].copy()
+
+    print(f"  选中因子: {len(available_cols)} 个")
+    for i, name in enumerate(selected_names):
+        if i < len(available_cols):
+            print(f"    因子{i+1} ({name}): {available_cols[i]}")
+
+    return features_df, label_df, selected_names, available_cols, selected_exprs
+
+
+def main():
+    parser = argparse.ArgumentParser(description="QuantaAlpha模型训练")
+    parser.add_argument("--mode", type=str, default="v1.0",
+                        choices=["v1.0", "v3.0", "v4.0", "v5.0"],
+                        help="因子模式: v1.0(三因子) 或 v3.0(五因子) 或 v4.0(因子库选优5因子) 或 v5.0(Optuna搜索最优)")
+    parser.add_argument("--skip-rolling", action="store_true",
+                        help="跳过滚动IC计算（节省时间）")
+    args = parser.parse_args()
+
+    # ================================================================
+    # v5.0: 从Phase 1缓存加载（跳过Qlib重新计算）
+    # ================================================================
+    if args.mode == "v5.0":
+        optuna_config = load_optuna_best_config()
+        features_df, label_df, factor_names, factor_cols, factor_expressions = load_v5_features_from_cache(optuna_config)
+
+        print("=" * 70)
+        print(f"QuantaAlpha模型训练与导出 (v5.0模式 — Optuna最优)")
+        print("=" * 70)
+
+        # v5.0 uses cache, skip Qlib Steps 1-4
+        # Go directly to Step 5: merge and clean
+        print("\nStep 2 (v5.0): 准备训练数据...")
+        data_df = features_df.join(label_df, how='inner').dropna()
+        print(f"  有效样本: {len(data_df)}")
+
+        dates_index = data_df.index.get_level_values(1)
+        all_dates = sorted(dates_index.unique())
+        n_dates = len(all_dates)
+        data_start = all_dates[0] if all_dates else pd.Timestamp("N/A")
+        data_end = all_dates[-1] if all_dates else pd.Timestamp("N/A")
+        print(f"  数据范围: {str(data_start)[:10]} ~ {str(data_end)[:10]} ({n_dates} 交易日)")
+
+        train_end_date = pd.Timestamp("2023-12-31")
+        valid_start_date = pd.Timestamp("2024-01-01")
+        valid_end_date = pd.Timestamp("2024-12-31")
+        test_start_date = pd.Timestamp("2025-01-01")
+
+        train_mask = dates_index <= train_end_date
+        valid_mask = (dates_index >= valid_start_date) & (dates_index <= valid_end_date)
+        test_mask = dates_index >= test_start_date
+
+        train_df = data_df[train_mask]
+        valid_df = data_df[valid_mask]
+        test_df = data_df[test_mask]
+
+        print(f"  训练集: {len(train_df)} (2016-2023)")
+        print(f"  验证集: {len(valid_df)} (2024)")
+        print(f"  测试集: {len(test_df)} (2025)")
+
+        if len(valid_df) == 0:
+            print("  ⚠️  验证集为空，使用训练集最后20%作为验证")
+            train_end_idx = int(n_dates * 0.80)
+            train_df = data_df[dates_index < all_dates[train_end_idx]]
+            valid_df = data_df[dates_index >= all_dates[train_end_idx]]
+            test_df = valid_df
+
+        X_train = train_df[factor_cols].values
+        y_train = train_df['label'].values
+        X_valid = valid_df[factor_cols].values
+        y_valid = valid_df['label'].values
+        X_test = test_df[factor_cols].values
+        y_test = test_df['label'].values
+
+        factor_expressions = factor_cols  # for display/metadata
+        # Build default params
+        default_params = _get_default_params()
+
+        # v5.0: apply Optuna hyperparameters
+        lgb_params = optuna_config.get("lgb_params", {})
+        if lgb_params:
+            for k in default_params:
+                if k not in ('num_threads', 'verbose', 'objective', 'metric') and k in lgb_params:
+                    default_params[k] = lgb_params[k]
+            print(f"  ⚙️  使用Optuna最优超参数 (Trial #{optuna_config['trial_number']})")
+
+        params = default_params
+
+        # v5.0: set up variables and fall through to shared training code (Step 6)
+        factor_cols = factor_cols  # already set above
+        # Skip to Step 6 by setting up the same variables the standard path uses
+        # (factor_expressions, factor_names, factor_cols, X_train, etc. already set)
+        # Continue below to shared training code
+        # v5.0 skips the standard Qlib path below via sys.exit after training
+
+    if args.mode != "v5.0":
+        # Standard path: Steps 1-5 with Qlib
+        factor_expressions = FACTOR_MODES[args.mode]
+        factor_names = FACTOR_NAMES[args.mode]
+
+        print("=" * 70)
+        print(f"QuantaAlpha模型训练与导出 ({args.mode}模式)")
+        print("=" * 70)
+
+        # Step 1: Init Qlib
+        print("\nStep 1: 初始化Qlib...")
+        import qlib
+        provider_uri = Path.home() / ".qlib/qlib_data/cn_data"
+        qlib.init(provider_uri=str(provider_uri), region='cn')
+        print(f"✅ Qlib初始化: {provider_uri}")
+
+        # Step 2: Print factor expressions
+        print("\nStep 2: 因子表达式...")
+        print(f"  模式: {args.mode} ({len(factor_expressions)}因子)")
+        for i, (name, expr) in enumerate(zip(factor_names, factor_expressions), 1):
+            print(f"  因子{i} ({name}): {expr[:80]}...")
+
+        # Step 3: Compute features
+        print("\nStep 3: 计算特征数据...")
+        from qlib.data import D
+
+        from qlib.data import D as data_api
+        start_time = "2016-01-01"
+        end_time = "2025-12-26"
+
+        instruments_obj = data_api.instruments('csi300')
+        instruments = data_api.list_instruments(
+            instruments=instruments_obj,
+            start_time=start_time,
+            end_time=end_time,
+            as_list=True,
+        )
+
+        print(f"  标的: CSI300 ({len(instruments)} stocks)")
+        print(f"  时间: {start_time} ~ {end_time}")
+
+        features_df = D.features(instruments, factor_expressions, start_time=start_time, end_time=end_time)
+        features_df.columns = [f'factor_{i+1}' for i in range(len(factor_expressions))]
+
+        print(f"✅ 特征数据: {features_df.shape}")
+        print(f"  样本数: {len(features_df)}")
+        print(f"  NaN比例: {features_df.isnull().sum().sum() / features_df.size * 100:.2f}%")
+
+        # Step 4: Compute label
+        print("\nStep 4: 计算标签...")
+        label_expr = "Ref($close, -2)/$close - 1"
+        label_df = D.features(instruments, [label_expr], start_time=start_time, end_time=end_time)
+        label_df.columns = ['label']
+
+        print(f"✅ 标签数据: {label_df.shape}")
+
+        # Step 5: Merge and clean
+        print("\nStep 5: 准备训练数据...")
+        data_df = features_df.join(label_df, how='inner').dropna()
+
+        print(f"  有效样本: {len(data_df)}")
+
+        dates_index = data_df.index.get_level_values(1)
+        all_dates = sorted(dates_index.unique())
+        n_dates = len(all_dates)
+        data_start = all_dates[0]
+        data_end = all_dates[-1]
+        print(f"  数据范围: {str(data_start)[:10]} ~ {str(data_end)[:10]} ({n_dates} 交易日)")
+
+        train_end_date = pd.Timestamp("2023-12-31")
+        valid_start_date = pd.Timestamp("2024-01-01")
+        valid_end_date = pd.Timestamp("2024-12-31")
+        test_start_date = pd.Timestamp("2025-01-01")
+
+        train_mask = dates_index <= train_end_date
+        valid_mask = (dates_index >= valid_start_date) & (dates_index <= valid_end_date)
+        test_mask  = dates_index >= test_start_date
+
+        train_df = data_df[train_mask]
+        valid_df = data_df[valid_mask]
+        test_df = data_df[test_mask]
+
+        print(f"  训练集: {len(train_df)} (2016-01-01 ~ 2023-12-31, 全量8年)")
+        print(f"  验证集: {len(valid_df)} (2024-01-01 ~ 2024-12-31)")
+        print(f"  测试集: {len(test_df)} (2025-01-01 ~ {str(data_end)[:10]})")
+
+        if len(valid_df) == 0:
+            print("  ⚠️  验证集为空（数据未覆盖2024年），使用训练集最后20%作为验证")
+            train_end_idx = int(n_dates * 0.80)
+            train_df = data_df[dates_index < all_dates[train_end_idx]]
+            valid_df = data_df[dates_index >= all_dates[train_end_idx]]
+            test_df = valid_df
+
+        factor_cols = [f'factor_{i+1}' for i in range(len(factor_expressions))]
+
+        X_train = train_df[factor_cols].values
+        y_train = train_df['label'].values
+
+        X_valid = valid_df[factor_cols].values
+        y_valid = valid_df['label'].values
+
+        X_test = test_df[factor_cols].values
+        y_test = test_df['label'].values
+
+        params = _get_default_params()
+
+    # ================================================================
+    # Shared: Step 6 onwards (both v5.0 and standard paths converge here)
+    # ================================================================
+    # Step 6: 训练LightGBM模型
+    print("\nStep 6: 训练LightGBM模型...")
+
+    try:
+        import lightgbm as lgb
+    except ImportError:
+        print("❌ lightgbm未安装")
+        print("安装: pip install lightgbm")
+        return 1
+
+    import numpy as np
+
+    # Only set default params if not already set by v5.0 path
+    if 'params' not in locals():
+        params = _get_default_params()
+
+    train_data = lgb.Dataset(X_train, label=y_train)
+    valid_data = lgb.Dataset(X_valid, label=y_valid, reference=train_data)
 
     print("  训练参数:", {k: v for k, v in params.items() if k in ['learning_rate', 'max_depth', 'num_leaves']})
 
@@ -401,6 +581,92 @@ def main():
         return np.array([factor1, factor2, factor3, factor4, factor5])
     except:
         return None'''
+    elif args.mode == "v4.0":
+        factor_init_code = f'''    # v4.0 五因子（因子库选优，覆盖5个驱动逻辑）
+    try:
+        returns = np.diff(close) / close[:-1]
+
+        # 因子1: Gap_Range_Mean_Reversion_5D（均值回归类，ICIR=0.1610）
+        if len(close) >= 10:
+            gap = (open_price[-1] - close[-2]) / (np.mean(high[-10:] - low[-10:]) + 1e-8)
+            range_ratio = (high[-1] - low[-1]) / (np.mean(high[-10:] - low[-10:]) + 1e-8)
+            raw = gap * range_ratio
+            raw_hist = [(open_price[i] - close[i-1]) / (np.mean(high[i-10:i] - low[i-10:i]) + 1e-8) * (high[i] - low[i]) / (np.mean(high[i-10:i] - low[i-10:i]) + 1e-8) for i in range(max(1, len(close)-10), len(close))]
+            if len(raw_hist) >= 5:
+                factor1 = (raw - np.mean(raw_hist[-5:])) / (np.std(raw_hist[-5:]) + 1e-8)
+            else:
+                factor1 = 0
+        else:
+            factor1 = 0
+
+        # 因子2: Close_Position_Deviation_Factor_10D（动量/趋势类，ICIR=0.1610）
+        if len(close) >= 10:
+            close_pos = (close[-1] - low[-1]) / (high[-1] - low[-1] + 1e-8)
+            deviation = abs(close_pos - 0.5)
+            dev_hist = [abs((close[i] - low[i]) / (high[i] - low[i] + 1e-8) - 0.5) for i in range(max(1, len(close)-10), len(close))]
+            factor2 = sum(1 for d in dev_hist if d < deviation) / len(dev_hist) if dev_hist else 0.5
+        else:
+            factor2 = 0
+
+        # 因子3: Overnight_Intraday_Asymmetry_20D（其他类，ICIR=0.1610）
+        if len(close) >= 20:
+            overnight_ret = [(open_price[i] - close[i-1]) / (close[i-1] + 1e-8) for i in range(1, len(close))]
+            intraday_pos = [(close[i] - low[i]) / (high[i] - low[i] + 1e-8) for i in range(len(close))]
+            n = min(20, len(overnight_ret), len(intraday_pos))
+            if n >= 5:
+                o = overnight_ret[-n:]
+                i = intraday_pos[-n:]
+                mean_o = np.mean(o)
+                mean_i = np.mean(i)
+                cov = np.mean([(o[j]-mean_o)*(i[j]-mean_i) for j in range(n)])
+                std_o = np.std(o)
+                std_i = np.std(i)
+                factor3 = cov / (std_o * std_i + 1e-8)
+            else:
+                factor3 = 0
+        else:
+            factor3 = 0
+
+        # 因子4: Turnover_Acceleration_10D_vs_20D（量价关系类，ICIR=0.1569）
+        # Qlib: Rank((Mean(Delta($volume,1),10)-Mean(Delta($volume,1),20))/(Std(Delta($volume,1),20)+1e-8), 60)
+        if len(volume) >= 80:
+            vol_delta = np.diff(volume)
+            accel_series = []
+            for t in range(20, len(vol_delta) + 1):
+                w = vol_delta[t-20:t]
+                m10 = np.mean(w[-10:])
+                m20 = np.mean(w)
+                s20 = np.std(w)
+                accel_series.append((m10 - m20) / (s20 + 1e-8))
+            accel_history = accel_series[-60:] if len(accel_series) >= 60 else accel_series
+            accel_cur = accel_series[-1]
+            factor4 = sum(1 for a in accel_history if a < accel_cur) / len(accel_history) if accel_history else 0.5
+        else:
+            factor4 = 0
+
+        # 因子5: Abnormal_Return_Persistence_Score（波动率类，ICIR=0.1370）
+        if len(returns) >= 20:
+            mean_ret = np.mean(returns[-20:])
+            std_ret = np.std(returns[-20:])
+            threshold = 1.5 * std_ret
+            abnormal_count = sum(1 for r in returns[-5:] if abs(r - mean_ret) > threshold)
+            factor5 = abnormal_count / 5.0
+        else:
+            factor5 = 0
+
+        return np.array([factor1, factor2, factor3, factor4, factor5])
+    except:
+        return None'''
+    elif args.mode == "v5.0":
+        # v5.0: 动态因子（Optuna搜索最优）— 不自动生成聚宽脚本
+        # ⚠️  v5.0因子为动态搜索，每个因子的Qlib表达式不同，需手动实现
+        # 禁止导出placeholder脚本，避免部署错误
+        optuna_config = load_optuna_best_config()
+        selected_names = optuna_config.get("selected_factors", [])
+        print(f"\n⚠️  v5.0模式：跳过聚宽脚本生成（需手动实现{len(selected_names)}个因子）")
+        print("  原因: Optuna搜索的因子表达式需手动验证后实现为Python代码")
+        print("  参考: exported_models/load_model_joinquant.py (v4.0示例)")
+        jk_script = None  # skip
     else:
         factor_init_code = '''    try:
         # 因子1: Hurst Proxy
@@ -430,9 +696,15 @@ def main():
     except:
         return None'''
 
-    jk_script = output_dir / "load_model_joinquant.py"
-    with open(jk_script, 'w') as f:
-        f.write(f'''"""
+    # Step 9: 创建聚宽加载脚本（v5.0跳过，需手动实现）
+    print("\nStep 9: 创建聚宽加载脚本...")
+
+    if args.mode == "v5.0":
+        print("  ⏭️  v5.0模式：跳过聚宽脚本生成（因子表达式需手动实现）")
+    else:
+        jk_script = output_dir / "load_model_joinquant.py"
+        with open(jk_script, 'w') as f:
+            f.write(f'''"""
 聚宽平台 - 加载QuantaAlpha模型 ({args.mode}, {n_factors}因子)
 
 前提条件：
@@ -501,11 +773,16 @@ def initialize(context):
 
 def calculate_factors(stock, date):
     """计算{n_factors}因子"""
-    df = get_price(stock, end_date=date, count=50, frequency='1d', fields=['close'])
-    if df is None or len(df) < 30:
+    df = get_price(stock, end_date=date, count=100, frequency='1d',
+                   fields=['open', 'high', 'low', 'close', 'volume'])
+    if df is None or len(df) < 80:
         return None
 
     close = df['close'].values
+    open_price = df['open'].values
+    high = df['high'].values
+    low = df['low'].values
+    volume = df['volume'].values
 
 {factor_init_code}
 
@@ -553,7 +830,8 @@ def after_code_changed(context):
         g.model = None
 ''')
 
-    print(f"✅ 聚宽脚本: {jk_script}")
+        print(f"✅ 聚宽脚本: {jk_script}")
+        print(f"  模式: {args.mode}, {n_factors}因子")
 
     # 完成
     print("\n" + "=" * 70)
@@ -564,7 +842,10 @@ def after_code_changed(context):
     print(f"  1. quantaalpha_model.txt     - LightGBM原生格式（⭐ 主要生产格式，上传聚宽）")
     print(f"  2. quantaalpha_model.pkl     - pickle备用格式（本地验证用）")
     print(f"  3. model_metadata.txt        - 模型元信息")
-    print(f"  4. load_model_joinquant.py   - 聚宽加载脚本（{args.mode}, {n_factors}因子）")
+    if args.mode != "v5.0":
+        print(f"  4. load_model_joinquant.py   - 聚宽加载脚本（{args.mode}, {n_factors}因子）")
+    else:
+        print(f"  4. load_model_joinquant.py   - ⚠️  需手动实现（v5.0因子表达式需验证）")
 
     print("\n📋 后续步骤:")
     print("  1. 运行 test_txt_loading.py 验证 .txt 格式可正常加载（⭐ 主要门控）")
