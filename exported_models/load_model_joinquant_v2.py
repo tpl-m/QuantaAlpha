@@ -28,7 +28,7 @@ import numpy as np
 # ========== 配置 ==========
 BENCHMARK = "000300.XSHG"
 INIT_CAPITAL = 1000000
-TOP_K = 50           # Top-K选股数量
+TOP_K = 10           # Top-K选股数量（100万资金按skill建议=10）
 N_DROP = 5           # 每次调仓最多换N_DROP只（0=全部换）
 TARGET_POS = 0.85    # 目标仓位比例（skill要求85%）
 MODEL_FILE = "quantaalpha_model.txt"
