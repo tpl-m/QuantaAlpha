@@ -137,8 +137,10 @@ def load_data(factor_expressions, start_time, end_time):
                           start_time=start_time, end_time=end_time)
     label_df.columns = ['label']
 
-    # 合并清理
-    data_df = features_df.join(label_df, how='inner').dropna()
+    # 合并清理 — only drop rows where label is NaN, fill feature NaN with 0
+    data_df = features_df.join(label_df, how='inner').dropna(subset=['label'])
+    feature_cols = [f'factor_{i+1}' for i in range(len(factor_expressions))]
+    data_df[feature_cols] = data_df[feature_cols].fillna(0)
 
     print(f"  有效样本: {len(data_df)}")
     print(f"  NaN比例: {features_df.isnull().sum().sum() / features_df.size * 100:.2f}%")
@@ -534,9 +536,29 @@ def main():
 
     # 默认因子表达式（v1.0三因子）
     if args.factors:
-        factor_expressions = [f.strip() for f in args.factors.split(',')]
+        # Parse with a smarter approach: use json if available
+        import json as _json
+        try:
+            factor_expressions = _json.loads(args.factors)
+        except:
+            # Fallback: try reading from optuna config
+            optuna_config = project_root / "optuna_search_results" / "best_configuration.json"
+            if optuna_config.exists():
+                config = _json.loads(optuna_config.read_text())
+                factor_expressions = config.get("selected_expressions", [])
+                print(f"  ⚙️  从Optuna配置读取{len(factor_expressions)}个因子")
+            else:
+                factor_expressions = [f.strip() for f in args.factors.split('|')]  # use | as separator
     else:
-        factor_expressions = [
+        # Try loading from Optuna config first
+        import json as _json
+        optuna_config = project_root / "optuna_search_results" / "best_configuration.json"
+        if optuna_config.exists():
+            config = _json.loads(optuna_config.read_text())
+            factor_expressions = config.get("selected_expressions", [])
+            print(f"  ⚙️  从Optuna配置读取{len(factor_expressions)}个因子")
+        else:
+            factor_expressions = [
             # 因子1: Hurst_Proxy
             "(0 - (Log($close) - Mean(Log($close), 20)) / (Std(Log($close), 20) + 1e-8)) * Std($close/Ref($close,1)-1, 5) / (Std($close/Ref($close,1)-1, 20) + 1e-8)",
             # 因子2: AR1_Reversion
