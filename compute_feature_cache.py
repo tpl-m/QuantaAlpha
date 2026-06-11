@@ -33,6 +33,7 @@ sys.path.insert(0, str(project_root))
 EXPR_CONVERSIONS = [
     # Order matters: longer patterns first to avoid partial matches
     ("TS_ZSCORE", None),  # handled specially: (x - Mean(x,n)) / (Std(x,n) + 1e-8)
+    ("ZSCORE", None),  # handled: (x - Mean(x,20)) / (Std(x,20) + 1e-8)
     ("TS_MEAN", "Mean"),
     ("TS_STD", "Std"),
     ("TS_SUM", "Sum"),
@@ -42,6 +43,7 @@ EXPR_CONVERSIONS = [
     ("TS_MAX", "Max"),
     ("TS_ARGMIN", "ArgMin"),
     ("TS_ARGMAX", "ArgMax"),
+    ("TS_PCTCHANGE", None),  # handled: (x - Ref(x,n)) / Ref(x,n)
     ("DELAY", "Ref"),
     ("DELTA", "Delta"),
     ("RANK", "Rank"),
@@ -57,6 +59,7 @@ EXPR_CONVERSIONS = [
     ("CORR", "Corr"),
     ("SQRT", "Sqrt"),
     ("POWER", "Power"),
+    ("SEQUEUE", "Sequence"),  # Qlib uses Sequence
 ]
 
 
@@ -74,8 +77,8 @@ def convert_factorlib_to_qlib(expr: str) -> str:
 
     result = expr.strip()
 
-    # Handle TS_ZSCORE specially: TS_ZSCORE(x, n) → (x - Mean(x,n)) / (Std(x,n) + 1e-8)
-    # Pattern: TS_ZSCORE(..., n) where ... can be nested
+    # Handle TS_ZSCORE, TS_PCTCHANGE, SEQUENCE specially
+    # TS_ZSCORE(x, n) → (x - Mean(x,n)) / (Std(x,n) + 1e-8)
     ts_zscore_pattern = r'TS_ZSCORE\('
     while re.search(ts_zscore_pattern, result):
         # Find TS_ZSCORE( and extract its content
@@ -118,9 +121,86 @@ def convert_factorlib_to_qlib(expr: str) -> str:
 
         result = result[:start] + zscore_result + result[i:]
 
-    # Handle Rank with two arguments: Rank(x, n) → keep as-is (Qlib supports this)
-    # But factorlib might use single-arg Rank, Qlib needs window
-    # For now, pass through
+    # Handle ZSCORE(x) → (x - Mean(x,20)) / (Std(x,20) + 1e-8)
+    while 'ZSCORE(' in result:
+        start = result.find('ZSCORE(')
+        if start == -1:
+            break
+        inner_start = start + len('ZSCORE(')
+        depth = 1
+        i = inner_start
+        while i < len(result) and depth > 0:
+            if result[i] == '(':
+                depth += 1
+            elif result[i] == ')':
+                depth -= 1
+            i += 1
+        if depth != 0:
+            break
+        inner = result[inner_start:i-1]
+        zscore_result = f"({inner} - Mean({inner}, 20)) / (Std({inner}, 20) + 1e-8)"
+        result = result[:start] + zscore_result + result[i:]
+
+    # Convert function names first (RANK → Rank), then fix single-arg Rank
+    for old_name, new_name in EXPR_CONVERSIONS:
+        if old_name == "TS_ZSCORE":
+            continue
+        if new_name is None:
+            continue
+        pattern = r'\b' + re.escape(old_name) + r'\b'
+        result = re.sub(pattern, new_name, result)
+
+    # Handle Rank: add , 60 window if only one arg
+    # Strategy: process Ranks from left to right, skipping past processed ones
+    def fix_single_rank(expr):
+        """Replace Rank(x) with Rank(x, 60) when no window arg present."""
+        result = expr
+        scan_pos = 0
+        max_iter = 50
+        it = 0
+        while it < max_iter:
+            it += 1
+            # Find next Rank( starting from scan_pos
+            pos = result.find('Rank(', scan_pos)
+            if pos == -1:
+                break
+            # Find matching close paren
+            start = pos + 5
+            depth = 1
+            i = start
+            while i < len(result) and depth > 0:
+                if result[i] == '(':
+                    depth += 1
+                elif result[i] == ')':
+                    depth -= 1
+                i += 1
+            if depth != 0:
+                break
+            content = result[start:i-1]
+            # First, recursively fix any nested Ranks in content
+            new_content = fix_single_rank(content)
+            # Check if outer Rank has top-level comma + number
+            d = 0
+            has_window = False
+            for j in range(len(new_content)-1, -1, -1):
+                if new_content[j] == ')': d += 1
+                elif new_content[j] == '(': d -= 1
+                elif new_content[j] == ',' and d == 0:
+                    after = new_content[j+1:].strip()
+                    if re.match(r'^\d+\s*$', after):
+                        has_window = True
+                    break
+            if has_window:
+                # Update content but keep Rank as-is, scan past this Rank
+                result = result[:start] + new_content + result[i-1:]
+                scan_pos = i  # Move past this Rank's closing paren
+            else:
+                # Add , 60 to this Rank
+                result = result[:start] + new_content + ', 60' + result[i-1:]
+                scan_pos = i + 4  # Move past the inserted ', 60' and closing paren
+        return result
+
+    result = fix_single_rank(result)
 
     # Convert remaining function names
     for old_name, new_name in EXPR_CONVERSIONS:
@@ -324,7 +404,9 @@ def compute_factor_ic(features_df: pd.DataFrame, label_df: pd.DataFrame,
     """Compute daily cross-sectional IC for each factor."""
     print("\n计算各因子独立IC/ICIR...")
 
-    data_df = features_df.join(label_df, how='inner').dropna()
+    data_df = features_df.join(label_df, how='inner')
+    # Don't dropna on all columns — only drop where label or the specific factor is NaN
+    # (done per-factor below)
     dates_index = data_df.index.get_level_values(1)
     all_dates = sorted(dates_index.unique())
 
@@ -336,10 +418,12 @@ def compute_factor_ic(features_df: pd.DataFrame, label_df: pd.DataFrame,
         daily_ics = []
         for date in all_dates:
             date_data = data_df.loc[(slice(None), date), :]
-            if len(date_data) < 10:
+            # Drop NaN only for this factor and label
+            date_clean = date_data.dropna(subset=[factor_col, 'label'])
+            if len(date_clean) < 10:
                 continue
             try:
-                ic = np.corrcoef(date_data[factor_col].values, date_data['label'].values)[0, 1]
+                ic = np.corrcoef(date_clean[factor_col].values, date_clean['label'].values)[0, 1]
                 if not np.isnan(ic):
                     daily_ics.append(ic)
             except Exception:
@@ -529,7 +613,7 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description="Phase 1: 特征缓存 + 因子候选池")
-    parser.add_argument("--top", type=int, default=40, help="计算Top N因子（默认40）")
+    parser.add_argument("--top", type=int, default=17, help="计算Top N因子（默认17，排除所有含不支持运算符的因子）")
     parser.add_argument("--skip-qlib", action="store_true", help="跳过Qlib计算（仅做表达式转换）")
     parser.add_argument("--start-time", type=str, default="2016-01-01")
     parser.add_argument("--end-time", type=str, default="2025-12-26")
