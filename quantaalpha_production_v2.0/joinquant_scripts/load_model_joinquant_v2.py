@@ -30,7 +30,7 @@ BENCHMARK = "000300.XSHG"
 INIT_CAPITAL = 1000000
 TOP_K = 50           # Top-K选股数量
 N_DROP = 5           # 每次调仓最多换N_DROP只（0=全部换）
-TARGET_POS = 0.95    # 目标仓位比例
+TARGET_POS = 0.85    # 目标仓位比例（skill要求85%）
 MODEL_FILE = "quantaalpha_model.txt"
 
 # 历史数据长度：60日rolling window + 20日统计 + buffer
@@ -119,6 +119,21 @@ def rebalance(context):
     top_codes = [s[0] for s in top_stocks]
 
     log.info(f"有效股票数: {len(predictions)}, Top-{TOP_K}平均预测: {np.mean([s[1] for s in top_stocks]):.6f}")
+
+    # ===== 第1层：价格预过滤 =====
+    per_stock_value = context.portfolio.total_value * TARGET_POS / TOP_K
+    max_price = per_stock_value / 100 * 0.95  # 临界价：每只目标金额/100股*0.95
+
+    try:
+        price_df = get_price(top_codes, end_date=context.current_dt, count=1, fields=['close'])
+        prices = price_df['close'].iloc[-1].to_dict()
+        top_codes = [s for s in top_codes if prices.get(s, 0) <= max_price]
+    except Exception:
+        pass  # 价格获取失败，不过滤
+
+    if not top_codes:
+        log.warning("价格预过滤后无可用股票，跳过调仓")
+        return
 
     # 3. N_DROP换仓限制 + 防御体系
     prev_positions = set(context.portfolio.positions.keys())
