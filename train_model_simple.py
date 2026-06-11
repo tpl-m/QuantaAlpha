@@ -188,7 +188,9 @@ def main():
         # v5.0 uses cache, skip Qlib Steps 1-4
         # Go directly to Step 5: merge and clean
         print("\nStep 2 (v5.0): 准备训练数据...")
-        data_df = features_df.join(label_df, how='inner').dropna()
+        data_df = features_df.join(label_df, how='inner').dropna(subset=['label'])
+        # Fill feature NaN with 0 (per-factor NaN handled during training)
+        data_df[factor_cols] = data_df[factor_cols].fillna(0)
         print(f"  有效样本: {len(data_df)}")
 
         dates_index = data_df.index.get_level_values(1)

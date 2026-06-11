@@ -119,9 +119,10 @@ def split_data(data_df: pd.DataFrame, factor_cols: list) -> dict:
     valid_mask = (dates_index >= VALID_START_DATE) & (dates_index <= VALID_END_DATE)
     test_mask = dates_index >= TEST_START_DATE
 
-    train_df = data_df[train_mask].dropna(subset=factor_cols + ['label'])
-    valid_df = data_df[valid_mask].dropna(subset=factor_cols + ['label'])
-    test_df = data_df[test_mask].dropna(subset=factor_cols + ['label'])
+    # Only dropna on label, not on features (features may have NaN that get filled later)
+    train_df = data_df[train_mask].dropna(subset=['label'])
+    valid_df = data_df[valid_mask].dropna(subset=['label'])
+    test_df = data_df[test_mask].dropna(subset=['label'])
 
     # Fallback if valid is empty
     if len(valid_df) == 0:
