@@ -183,29 +183,34 @@ def rebalance(context):
 
     # ⚠️ 第5层：买入能力校验 + 第6层：手动股数计算
     if active_codes:
-        target_val = context.portfolio.total_value * TARGET_POS / len(active_codes)
+        # 对to_buy中的新股票下单（已持仓的不动）
+        target_val = context.portfolio.total_value * TARGET_POS / TOP_K
         target_val_adjusted = target_val * 0.98  # 预留2%手续费
 
         # 获取价格
         try:
-            price_df = get_price(active_codes, end_date=context.current_dt, count=1, fields=['close'])
+            price_df = get_price(list(to_buy), end_date=context.current_dt, count=1, fields=['close'])
             prices = price_df['close'].iloc[-1].to_dict()
         except Exception:
             prices = {}
 
         buy_count = 0
         skipped_count = 0
-        for s in active_codes:
+
+        # 对to_buy中的股票用order_target_value调仓
+        for s in to_buy:
             price = prices.get(s, 0)
             if price <= 0:
                 skipped_count += 1
                 continue
-            shares = int(target_val_adjusted / price)
-            shares = (shares // 100) * 100  # 取整到100
-            if shares < 100:
+
+            # 检查是否能买至少100股
+            if target_val_adjusted / price < 100:
                 skipped_count += 1
                 continue
-            order(s, shares)  # 直接按股数下单
+
+            # 用order_target_value按目标金额调仓（聚宽自动处理已持仓情况）
+            order_target_value(s, target_val_adjusted)
             buy_count += 1
 
         # 核心指标日志
