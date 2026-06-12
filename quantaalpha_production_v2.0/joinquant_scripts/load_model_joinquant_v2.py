@@ -120,20 +120,25 @@ def rebalance(context):
 
     log.info(f"有效股票数: {len(predictions)}, Top-{TOP_K}平均预测: {np.mean([s[1] for s in top_stocks]):.6f}")
 
-    # ===== 第1层：价格预过滤 =====
-    per_stock_value = context.portfolio.total_value * TARGET_POS / TOP_K
-    max_price = per_stock_value / 100 * 0.95  # 临界价：每只目标金额/100股*0.95
+    # ===== 第1层：价格预过滤（首次建仓跳过，避免过滤过严） =====
+    is_first_buy = len(context.portfolio.positions) == 0
 
-    try:
-        price_df = get_price(top_codes, end_date=context.current_dt, count=1, fields=['close'])
-        prices = price_df['close'].iloc[-1].to_dict()
-        top_codes = [s for s in top_codes if prices.get(s, 0) <= max_price]
-    except Exception:
-        pass  # 价格获取失败，不过滤
+    if not is_first_buy:
+        per_stock_value = context.portfolio.total_value * TARGET_POS / TOP_K
+        max_price = per_stock_value / 100 * 0.95  # 临界价
 
-    if not top_codes:
-        log.warning("价格预过滤后无可用股票，跳过调仓")
-        return
+        try:
+            price_df = get_price(top_codes, end_date=context.current_dt, count=1, fields=['close'])
+            prices = price_df['close'].iloc[-1].to_dict()
+            top_codes = [s for s in top_codes if prices.get(s, 0) <= max_price]
+        except Exception:
+            pass  # 价格获取失败，不过滤
+
+        if not top_codes:
+            log.warning("价格预过滤后无可用股票，跳过调仓")
+            return
+    else:
+        log.info("首次建仓：跳过价格预过滤")
 
     # 3. N_DROP换仓限制 + 防御体系
     prev_positions = set(context.portfolio.positions.keys())
