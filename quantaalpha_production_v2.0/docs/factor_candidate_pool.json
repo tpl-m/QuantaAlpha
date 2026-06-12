@@ -1,0 +1,303 @@
+{
+  "timestamp": "2026-06-11T16:35:08.359298",
+  "summary": {
+    "total_factors_in_library": 75,
+    "factors_with_backtest": 17,
+    "top_n_computed": 17,
+    "after_diversity_filter": 15,
+    "derived_features": 8
+  },
+  "all_computed_factors": [
+    {
+      "name": "Gap_Range_Mean_Reversion_5D",
+      "column": "factor_1",
+      "mean_ic": 0.006581,
+      "ic_std": 0.079616,
+      "icir": 0.082657,
+      "ic_positive_ratio": 0.5332,
+      "original_icir": 0.16097849,
+      "qlib_expression": "(($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8) - Mean(($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8), 5)) / (Std(($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8), 5) + 1e-8)"
+    },
+    {
+      "name": "Close_Position_Deviation_Factor_10D",
+      "column": "factor_2",
+      "mean_ic": 0.009429,
+      "ic_std": 0.085296,
+      "icir": 0.110541,
+      "ic_positive_ratio": 0.5579,
+      "original_icir": 0.16097849,
+      "qlib_expression": "Rank(Abs(($close - $low) / ($high - $low + 1e-8) - 0.5), 10)"
+    },
+    {
+      "name": "Overnight_Intraday_Asymmetry_20D",
+      "column": "factor_3",
+      "mean_ic": 0.004346,
+      "ic_std": 0.079794,
+      "icir": 0.054469,
+      "ic_positive_ratio": 0.5167,
+      "original_icir": 0.16097849,
+      "qlib_expression": "Corr(($open - Ref($close, 1)) / (Ref($close, 1) + 1e-8), ($close - $low) / ($high - $low + 1e-8), 20)"
+    },
+    {
+      "name": "Turnover_Acceleration_10D_vs_20D",
+      "column": "factor_4",
+      "mean_ic": -0.001198,
+      "ic_std": 0.090899,
+      "icir": -0.013182,
+      "ic_positive_ratio": 0.4944,
+      "original_icir": 0.15688723,
+      "qlib_expression": "Rank((Mean(Delta($volume, 1), 10) - Mean(Delta($volume, 1), 20)) / (Std(Delta($volume, 1), 20) + 1e-8), 60)"
+    },
+    {
+      "name": "Volume_Percentile_Shift_5D_vs_20D",
+      "column": "factor_5",
+      "mean_ic": -0.000118,
+      "ic_std": 0.104078,
+      "icir": -0.001131,
+      "ic_positive_ratio": 0.4977,
+      "original_icir": 0.15688723,
+      "qlib_expression": "Rank(Mean($volume, 5), 20) / 20 - 0.5"
+    },
+    {
+      "name": "Liquidity_Regime_Divergence_Signal",
+      "column": "factor_6",
+      "mean_ic": 0.000757,
+      "ic_std": 0.098422,
+      "icir": 0.007688,
+      "ic_positive_ratio": 0.5031,
+      "original_icir": 0.15688723,
+      "qlib_expression": "Rank(Mean(Delta($volume, 1), 10), 60) * (0.5 - Rank(Mean($volume, 5), 20) / 20)"
+    },
+    {
+      "name": "Price_Volume_Rank_Divergence_10D",
+      "column": "factor_7",
+      "mean_ic": 0.006627,
+      "ic_std": 0.104111,
+      "icir": 0.063656,
+      "ic_positive_ratio": 0.5295,
+      "original_icir": 0.15332423,
+      "qlib_expression": "Rank(Delta($close, 10), 60) - Rank(Delta($volume, 10), 60)"
+    },
+    {
+      "name": "Normalized_Price_Volume_Divergence_10D",
+      "column": "factor_8",
+      "mean_ic": 0.00799,
+      "ic_std": 0.094322,
+      "icir": 0.084714,
+      "ic_positive_ratio": 0.5373,
+      "original_icir": 0.15332423,
+      "qlib_expression": "(Rank(Delta($close, 10), 60) - Rank(Delta($volume, 10), 60) - Mean(Rank(Delta($close, 10), 60) - Rank(Delta($volume, 10), 60), 20)) / (Std(Rank(Delta($close, 10), 60) - Rank(Delta($volume, 10), 60), 20) + 1e-8)"
+    },
+    {
+      "name": "Liquidity_Adjusted_Divergence_10D",
+      "column": "factor_9",
+      "mean_ic": 0.007262,
+      "ic_std": 0.11121,
+      "icir": 0.065303,
+      "ic_positive_ratio": 0.5406,
+      "original_icir": 0.15332423,
+      "qlib_expression": "Rank(Delta($close, 10), 60) - Rank(Delta($volume, 10), 60) * Rank(Mean($close * $volume, 20), 60)"
+    },
+    {
+      "name": "Intraday_Overnight_Volatility_Ratio_10D",
+      "column": "factor_10",
+      "mean_ic": -0.000933,
+      "ic_std": 0.07731,
+      "icir": -0.012067,
+      "ic_positive_ratio": 0.4887,
+      "original_icir": 0.14770491,
+      "qlib_expression": "Rank(Mean(($high - $low) / ($open + 1e-8), 10) / (Mean(Abs($open / (Ref($close, 1) + 1e-8) - 1), 10) + 1e-8), 60)"
+    },
+    {
+      "name": "Volume_Weighted_Intraday_Movement_15D",
+      "column": "factor_11",
+      "mean_ic": -0.000698,
+      "ic_std": 0.05715,
+      "icir": -0.012218,
+      "ic_positive_ratio": 0.494,
+      "original_icir": 0.14770491,
+      "qlib_expression": "Rank(Mean((Abs($close - $open) * $volume) / (Abs($open - Ref($close, 1)) + 1e-8), 15), 60)"
+    },
+    {
+      "name": "Asymmetric_Volume_Concentration_20D",
+      "column": "factor_12",
+      "mean_ic": -0.007763,
+      "ic_std": 0.111466,
+      "icir": -0.069642,
+      "ic_positive_ratio": 0.4697,
+      "original_icir": 0.14770491,
+      "qlib_expression": "Rank(Mean(($close - $open) * $volume / ($high - $low + 1e-8), 20) - Mean(($open - Ref($close, 1)) * $volume / ($high - $low + 1e-8), 20), 60)"
+    },
+    {
+      "name": "Rank_Momentum_Volume_Surge_Interaction_5D_20D",
+      "column": "factor_13",
+      "mean_ic": 0.0,
+      "ic_std": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0,
+      "original_icir": 0.14569821,
+      "qlib_expression": "Rank(Rank(Sum($return, 5), 60) - Rank(Sum($return, 20), 60), 60) * (Mean($volume, 5) / (Mean($volume, 20) + 1e-8))"
+    },
+    {
+      "name": "Normalized_Rank_Stability_Volume_Confirmation_Factor",
+      "column": "factor_14",
+      "mean_ic": 0.0,
+      "ic_std": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0,
+      "original_icir": 0.14569821,
+      "qlib_expression": "Rank(Corr($return, Ref($return, 15), 20), 60) * Rank(Mean($volume, 5) / (Mean($volume, 20) + 1e-8), 60)"
+    },
+    {
+      "name": "Cross_Sectional_Momentum_Acceleration_Volume_Factor",
+      "column": "factor_15",
+      "mean_ic": 0.0,
+      "ic_std": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0,
+      "original_icir": 0.14569821,
+      "qlib_expression": "((Rank(Sum($return, 5), 60) - Rank(Sum($return, 20), 60)) * (Mean($volume, 5) / (Mean($volume, 20) + 1e-8)) - Mean((Rank(Sum($return, 5), 60) - Rank(Sum($return, 20), 60)) * (Mean($volume, 5) / (Mean($volume, 20) + 1e-8)), 20)) / (Std((Rank(Sum($return, 5), 60) - Rank(Sum($return, 20), 60)) * (Mean($volume, 5) / (Mean($volume, 20) + 1e-8)), 20) + 1e-8)"
+    },
+    {
+      "name": "Rank_Momentum_Stability_5D_20D",
+      "column": "factor_16",
+      "mean_ic": 0.0,
+      "ic_std": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0,
+      "original_icir": 0.13703192,
+      "qlib_expression": "Corr(Rank(Mean($return, 5), 60), Rank(Mean($return, 20), 60), 20)"
+    },
+    {
+      "name": "Turnover_Acceleration_Ratio_10D_20D",
+      "column": "factor_17",
+      "mean_ic": 0.00058,
+      "ic_std": 0.056432,
+      "icir": 0.010281,
+      "ic_positive_ratio": 0.5105,
+      "original_icir": 0.13703192,
+      "qlib_expression": "Rank(Delta(Mean($volume, 10), 1) / (Delta(Mean($volume, 20), 1) + 1e-8), 60)"
+    }
+  ],
+  "diversity_filtered": [
+    {
+      "name": "Close_Position_Deviation_Factor_10D",
+      "column": "factor_2",
+      "mean_ic": 0.009429,
+      "icir": 0.110541,
+      "ic_positive_ratio": 0.5579
+    },
+    {
+      "name": "Normalized_Price_Volume_Divergence_10D",
+      "column": "factor_8",
+      "mean_ic": 0.00799,
+      "icir": 0.084714,
+      "ic_positive_ratio": 0.5373
+    },
+    {
+      "name": "Gap_Range_Mean_Reversion_5D",
+      "column": "factor_1",
+      "mean_ic": 0.006581,
+      "icir": 0.082657,
+      "ic_positive_ratio": 0.5332
+    },
+    {
+      "name": "Liquidity_Adjusted_Divergence_10D",
+      "column": "factor_9",
+      "mean_ic": 0.007262,
+      "icir": 0.065303,
+      "ic_positive_ratio": 0.5406
+    },
+    {
+      "name": "Overnight_Intraday_Asymmetry_20D",
+      "column": "factor_3",
+      "mean_ic": 0.004346,
+      "icir": 0.054469,
+      "ic_positive_ratio": 0.5167
+    },
+    {
+      "name": "Turnover_Acceleration_Ratio_10D_20D",
+      "column": "factor_17",
+      "mean_ic": 0.00058,
+      "icir": 0.010281,
+      "ic_positive_ratio": 0.5105
+    },
+    {
+      "name": "Liquidity_Regime_Divergence_Signal",
+      "column": "factor_6",
+      "mean_ic": 0.000757,
+      "icir": 0.007688,
+      "ic_positive_ratio": 0.5031
+    },
+    {
+      "name": "Rank_Momentum_Volume_Surge_Interaction_5D_20D",
+      "column": "factor_13",
+      "mean_ic": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0
+    },
+    {
+      "name": "Normalized_Rank_Stability_Volume_Confirmation_Factor",
+      "column": "factor_14",
+      "mean_ic": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0
+    },
+    {
+      "name": "Cross_Sectional_Momentum_Acceleration_Volume_Factor",
+      "column": "factor_15",
+      "mean_ic": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0
+    },
+    {
+      "name": "Rank_Momentum_Stability_5D_20D",
+      "column": "factor_16",
+      "mean_ic": 0.0,
+      "icir": 0.0,
+      "ic_positive_ratio": 0.0
+    },
+    {
+      "name": "Volume_Percentile_Shift_5D_vs_20D",
+      "column": "factor_5",
+      "mean_ic": -0.000118,
+      "icir": -0.001131,
+      "ic_positive_ratio": 0.4977
+    },
+    {
+      "name": "Intraday_Overnight_Volatility_Ratio_10D",
+      "column": "factor_10",
+      "mean_ic": -0.000933,
+      "icir": -0.012067,
+      "ic_positive_ratio": 0.4887
+    },
+    {
+      "name": "Volume_Weighted_Intraday_Movement_15D",
+      "column": "factor_11",
+      "mean_ic": -0.000698,
+      "icir": -0.012218,
+      "ic_positive_ratio": 0.494
+    },
+    {
+      "name": "Asymmetric_Volume_Concentration_20D",
+      "column": "factor_12",
+      "mean_ic": -0.007763,
+      "icir": -0.069642,
+      "ic_positive_ratio": 0.4697
+    }
+  ],
+  "derived_features": [
+    "rank_factor_2",
+    "rank_factor_8",
+    "rank_factor_1",
+    "rank_factor_9",
+    "rank_factor_3",
+    "inter_factor_2_factor_8",
+    "inter_factor_2_factor_1",
+    "inter_factor_8_factor_1"
+  ],
+  "cache_files": {
+    "feature_cache": "/Users/zhaowei.yu/code/AIAgentStock/quantitative_factors/QuantaAlpha/feature_cache.h5",
+    "feature_cache_labeled": "/Users/zhaowei.yu/code/AIAgentStock/quantitative_factors/QuantaAlpha/feature_cache_labeled.h5"
+  }
+}

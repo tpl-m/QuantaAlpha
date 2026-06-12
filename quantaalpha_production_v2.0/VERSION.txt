@@ -1,0 +1,36 @@
+QuantaAlpha v2.0 - Optuna联合搜索版本
+=======================================
+创建日期: 2026-06-11
+来源: Optuna Trial #49
+Score: -0.030532
+
+因子数: 9
+选中因子: Close_Position_Deviation_Factor_10D, Turnover_Acceleration_10D_vs_20D, Price_Volume_Rank_Divergence_10D, Liquidity_Adjusted_Divergence_10D, Intraday_Overnight_Volatility_Ratio_10D
+
+模型树数: N/A
+模型格式: LightGBM .txt (JoinQuant兼容)
+
+搜索配置:
+  - 算法: Optuna TPE
+  - Trials: 200
+  - 因子约束: 3-15个
+  - 目标函数: mean_ic + ICIR门控 + 回撤惩罚 + IC门控
+
+质量门控阈值:
+  - 日截面IC > 0.015
+  - ICIR > 0.12
+  - 年化收益 > 5%
+  - 最大回撤 > -15%
+  - 胜率 > 52%
+  - IC>0比例 > 55%
+
+文件清单:
+  models/quantaalpha_model.txt   - LightGBM模型（主要生产格式）
+  models/model_metadata.txt      - 模型元信息
+  algorithm/train_model_simple.py - 训练脚本（含v5.0模式）
+  algorithm/train_model_optuna.py - Optuna搜索脚本
+  algorithm/compute_feature_cache.py - 特征缓存脚本
+  joinquant_scripts/load_model_joinquant.py - 聚宽加载脚本
+  docs/best_configuration.json   - 最优配置
+  docs/factor_candidate_pool.json - 候选因子池
+  docs/all_trials.json           - 所有搜索结果

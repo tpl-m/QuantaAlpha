@@ -1,0 +1,90 @@
+{
+  "test_metrics": {
+    "Mean_IC": -0.0008574156820677997,
+    "IC_Std": 0.07695568706420378,
+    "ICIR": -0.011141680553658367,
+    "IC_Positive_Ratio": 0.4666666666666667,
+    "AnnReturn": 0.7020213970961082,
+    "TotalReturn": 0.6594595909118652,
+    "MaxDrawdown": -0.19503919780254364,
+    "Sharpe": 2.1905937397909274,
+    "WinRate": 0.5583333333333333,
+    "N_TradingDays": 240
+  },
+  "yearly_results": {
+    "2025": {
+      "IC": 0.021932490643439728,
+      "N_Days": 240,
+      "IC_Positive_Ratio": 0.4666666666666667
+    }
+  },
+  "regime_results": {
+    "Bull": {
+      "IC": null,
+      "N_Samples": 0,
+      "Note": "样本不足"
+    },
+    "Bear": {
+      "IC": null,
+      "N_Samples": 0,
+      "Note": "样本不足"
+    },
+    "Sideways": {
+      "IC": null,
+      "N_Samples": 0,
+      "Note": "样本不足"
+    }
+  },
+  "quality_gate": {
+    "passed": false,
+    "details": {
+      "IC": {
+        "passed": "False",
+        "actual": -0.0008574156820677997,
+        "threshold": 0.015
+      },
+      "ICIR": {
+        "passed": "False",
+        "actual": -0.011141680553658367,
+        "threshold": 0.12
+      },
+      "AnnReturn": {
+        "passed": "True",
+        "actual": 0.7020213970961082,
+        "threshold": 0.05
+      },
+      "MaxDrawdown": {
+        "passed": "False",
+        "actual": -0.19503919780254364,
+        "threshold": -0.15
+      },
+      "WinRate": {
+        "passed": "True",
+        "actual": 0.5583333333333333,
+        "threshold": 0.52
+      },
+      "IC_Positive_Ratio": {
+        "passed": "False",
+        "actual": 0.4666666666666667,
+        "threshold": 0.55
+      }
+    }
+  },
+  "config": {
+    "model_file": "exported_models/quantaalpha_model.txt",
+    "train_range": [
+      "2016-01-01",
+      "2023-12-31"
+    ],
+    "valid_range": [
+      "2024-01-01",
+      "2024-12-31"
+    ],
+    "test_range": [
+      "2025-01-01",
+      "2025-12-26"
+    ],
+    "top_k": 50,
+    "n_factors": 9
+  }
+}

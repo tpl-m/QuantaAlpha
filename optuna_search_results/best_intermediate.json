@@ -1,0 +1,58 @@
+{
+  "trial_number": 0,
+  "score": -0.031656395153959335,
+  "factor_params": {
+    "factor_prob_0": 0.3745401188473625,
+    "factor_prob_1": 0.9507143064099162,
+    "factor_prob_2": 0.7319939418114051,
+    "factor_prob_3": 0.5986584841970366,
+    "factor_prob_4": 0.15601864044243652,
+    "factor_prob_5": 0.15599452033620265,
+    "factor_prob_6": 0.05808361216819946,
+    "factor_prob_7": 0.8661761457749352,
+    "factor_prob_8": 0.6011150117432088,
+    "factor_prob_9": 0.7080725777960455,
+    "factor_prob_10": 0.020584494295802447,
+    "factor_prob_11": 0.9699098521619943,
+    "factor_prob_12": 0.8324426408004217,
+    "factor_prob_13": 0.21233911067827616,
+    "factor_prob_14": 0.18182496720710062,
+    "factor_prob_15": 0.18340450985343382,
+    "factor_prob_16": 0.3042422429595377
+  },
+  "lgb_params": {
+    "learning_rate": 0.048164145309070844,
+    "num_leaves": 128,
+    "max_depth": 5,
+    "colsample_bytree": 0.8059264473611898,
+    "subsample": 0.569746930326021,
+    "lambda_l1": 146.07232426760908,
+    "lambda_l2": 183.18092164684586,
+    "min_child_samples": 97,
+    "feature_fraction": 0.8925879806965068
+  },
+  "metrics": {
+    "ic_positive_ratio": 0.5578512396694215,
+    "ic_std": 0.10721259251796073,
+    "icir": 0.12445930587682866,
+    "long_short_return": 0.3494750875979662,
+    "max_drawdown": -0.12921299040317535,
+    "mean_ic": 0.013343604846040665,
+    "mse": 0.0016510316506363738,
+    "n_daily_ics": 242,
+    "n_selected": 8,
+    "score": -0.031656395153959335,
+    "selected_factors": [
+      "Close_Position_Deviation_Factor_10D",
+      "Overnight_Intraday_Asymmetry_20D",
+      "Turnover_Acceleration_10D_vs_20D",
+      "Normalized_Price_Volume_Divergence_10D",
+      "Liquidity_Adjusted_Divergence_10D",
+      "Intraday_Overnight_Volatility_Ratio_10D",
+      "Asymmetric_Volume_Concentration_20D",
+      "Rank_Momentum_Volume_Surge_Interaction_5D_20D"
+    ],
+    "status": "completed",
+    "win_rate": 1.0
+  }
+}

@@ -51,12 +51,12 @@ V1_FACTORS = {
 V3_CANDIDATES = {
     # 动量/趋势类（当前最缺）
     "TS_Momentum": "Ref($close, 20) / $close - 1",
-    "RS_Position": "Rank($close / Mean($close, 60))",
+    "RS_Position": "Rank($close / (Mean($close, 60) + 1e-8), 252)",
     "Trend_Strength": "(Mean($close, 5) - Mean($close, 20)) / (Std($close, 20) + 1e-8)",
     # 波动率类
     "Vol_Acceleration": "(Std($close/Ref($close,1)-1, 5) - Std($close/Ref($close,1)-1, 20)) / (Std($close/Ref($close,1)-1, 20) + 1e-8)",
     # 量价类（精简）
-    "PV_Divergence": "Rank($close / Mean($close, 10)) - Rank($volume / Mean($volume, 10))",
+    "PV_Divergence": "Rank($close / (Mean($close, 10) + 1e-8), 60) - Rank($volume / (Mean($volume, 10) + 1e-8), 60)",
     # 流动性
     "Liquidity_Change": "($volume / (Mean($volume, 20) + 1e-8)) - 1",
 }

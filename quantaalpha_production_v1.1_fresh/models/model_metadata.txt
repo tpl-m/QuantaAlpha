@@ -1,0 +1,23 @@
+QuantaAlpha v4.0 模型 (5因子)
+==================================================
+
+训练时间: 2016-01-04 ~ 2025-12-26
+训练样本: 1066548
+验证样本: 146443
+测试样本: 144542
+
+Split方案: 年份基准 (train=2016-2023, valid=2024, test=2025)
+
+性能指标:
+  训练集IC: 0.0196
+  验证集IC: 0.0338
+  测试集IC: 0.0208
+
+滚动IC验证（5窗口）:
+
+因子定义:
+  因子1: ((($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8) - Mean(($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8), 5)) / (Std(($open - Ref($close, 1)) / (Mean($high - $low, 10) + 1e-8) * ($high - $low) / (Mean($high - $low, 10) + 1e-8), 5) + 1e-8))
+  因子2: Rank(Abs(($close - $low) / ($high - $low + 1e-8) - 0.5), 10)
+  因子3: Corr(($open - Ref($close, 1)) / (Ref($close, 1) + 1e-8), ($close - $low) / ($high - $low + 1e-8), 20)
+  因子4: Rank((Mean(Delta($volume, 1), 10) - Mean(Delta($volume, 1), 20)) / (Std(Delta($volume, 1), 20) + 1e-8), 60)
+  因子5: Count(Abs(($close - Ref($close, 1)) / (Ref($close, 1) + 1e-8) - Mean(($close - Ref($close, 1)) / (Ref($close, 1) + 1e-8), 20)) > 1.5 * Std(($close - Ref($close, 1)) / (Ref($close, 1) + 1e-8), 20), 5) / 5

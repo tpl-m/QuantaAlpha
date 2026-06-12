@@ -1,0 +1,55 @@
+{
+  "timestamp": "2026-06-11T11:41:39.067046",
+  "selected_factors": [
+    {
+      "name": "Gap_Range_Mean_Reversion_5D",
+      "category": "均值回归",
+      "IC": 0.02040394,
+      "ICIR": 0.16097849,
+      "expression": "TS_ZSCORE(($open - DELAY($close, 1)) / (TS_MEAN($high - $low, 10) + 1e-8) * ($high - $low) / (TS_MEAN($high - $low, 10) + 1e-8), 5)"
+    },
+    {
+      "name": "Close_Position_Deviation_Factor_10D",
+      "category": "动量/趋势",
+      "IC": 0.02040394,
+      "ICIR": 0.16097849,
+      "expression": "TS_RANK(ABS(($close - $low) / ($high - $low + 1e-8) - 0.5), 10)"
+    },
+    {
+      "name": "Overnight_Intraday_Asymmetry_20D",
+      "category": "其他",
+      "IC": 0.02040394,
+      "ICIR": 0.16097849,
+      "expression": "TS_CORR(($open - DELAY($close, 1)) / (DELAY($close, 1) + 1e-8), ($close - $low) / ($high - $low + 1e-8), 20)"
+    },
+    {
+      "name": "Turnover_Acceleration_10D_vs_20D",
+      "category": "量价关系",
+      "IC": 0.01917065,
+      "ICIR": 0.15688723,
+      "expression": "RANK((TS_MEAN(DELTA($volume, 1), 10) - TS_MEAN(DELTA($volume, 1), 20)) / (TS_STD(DELTA($volume, 1), 20) + 1e-8))"
+    },
+    {
+      "name": "Abnormal_Return_Persistence_Score",
+      "category": "波动率",
+      "IC": 0.01739204,
+      "ICIR": 0.13703192,
+      "expression": "MIN(COUNT(ABS($return - TS_MEAN($return, 20)) > 1.5 * TS_STD($return, 20), 5) / 5, 1.0)"
+    }
+  ],
+  "coverage": {
+    "n_factors": 5,
+    "n_categories": 5,
+    "categories": [
+      "均值回归",
+      "量价关系",
+      "其他",
+      "动量/趋势",
+      "波动率"
+    ]
+  },
+  "diversity": {
+    "status": "skipped",
+    "high_corr_pairs": []
+  }
+}
