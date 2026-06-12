@@ -144,6 +144,11 @@ def rebalance(context):
     prev_positions = set(context.portfolio.positions.keys())
     prev_target = set(top_codes)
 
+    # ⚡ 优化：持仓和目标完全一致，无需调仓
+    if prev_positions == prev_target and len(prev_positions) > 0:
+        log.info(f"持仓与目标一致({len(prev_positions)}只)，无需调仓")
+        return
+
     # 首次建仓：无持仓时不受N_DROP限制
     if len(prev_positions) == 0:
         to_sell = set()
